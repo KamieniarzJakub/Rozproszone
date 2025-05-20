@@ -1,5 +1,3 @@
-#include "main.h"
-
 #include <mpi.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -41,6 +39,12 @@ int liczba_konfitur = 0;
 int B = 2; // liczba babć
 int S = 2; // liczba studentek
 
+typedef struct {
+  int ts;   // timer
+  int src;  // od kogo wysłane
+  int type; // jaki rodzaj - słoik czy dżem
+} packet_t;
+
 MPI_Datatype MPI_PACKET_T;
 
 // Oddzielne kolejki
@@ -52,6 +56,29 @@ int queue_konfitury_size = 0;
 
 void inc_clock(int received_ts) {
   clockLamport = (clockLamport, received_ts) + 1;
+}
+
+bool is_first_in_queue() {
+  if (is_babcia) {
+    return queue_sloiki_size > 0 && queue_sloiki[0].src == rank;
+  } else {
+    return queue_konfitury_size > 0 && queue_konfitury[0].src == rank;
+  }
+}
+
+
+bool receive_condition() {
+  bool all_ack_received;
+  bool resources_available;
+  if (is_babcia) {
+    all_ack_received = ack_count == B - 1;
+    resources_available = liczba_sloikow > 0;
+  } else { // studentka
+    all_ack_received = ack_count == S - 1;
+    resources_available = liczba_konfitur > 0;
+  }
+
+  return !all_ack_received && is_first_in_queue() && resources_available;
 }
 
 void print_queue() {
@@ -108,13 +135,6 @@ void add_to_queue(packet_t pkt) {
   }
 }
 
-bool is_first_in_queue() {
-  if (is_babcia) {
-    return queue_sloiki_size > 0 && queue_sloiki[0].src == rank;
-  } else {
-    return queue_konfitury_size > 0 && queue_konfitury[0].src == rank;
-  }
-}
 
 void remove_from_queue(int src) { // TODO
   int *size = is_babcia ? &queue_sloiki_size : &queue_konfitury_size;
@@ -222,19 +242,7 @@ void receive_loop() {
   }
 }
 
-bool receive_condition() {
-  bool all_ack_received;
-  bool resources_available;
-  if (is_babcia) {
-    all_ack_received = ack_count == B - 1;
-    resources_available = liczba_sloikow > 0;
-  } else { // studentka
-    all_ack_received = ack_count == S - 1;
-    resources_available = liczba_konfitur > 0;
-  }
 
-  return !all_ack_received && is_first_in_queue() && resources_available;
-}
 
 void enter_critical_section() {
   debug("Wchodzę do sekcji krytycznej");

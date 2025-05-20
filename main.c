@@ -112,7 +112,8 @@ void send_packet(int dst, int tag) {
 
 void broadcast_packet(int tag) {
   for (int i = 0; i < size; i++) {
-    send_packet(i, tag);
+    if (i != rank)
+      send_packet(i, tag);
   }
 }
 

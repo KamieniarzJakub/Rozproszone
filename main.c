@@ -161,14 +161,14 @@ void request_resource() {
     for (int i = 0; i < rank; i++) {
       send_packet(i, TAG_REQ);
     }
-    for (int i = rank; i < B; i++) {
+    for (int i = rank+1; i < B; i++) {
       send_packet(i, TAG_REQ);
     }
   } else if (is_studentka) {
     for (int i = B; i < rank; i++) {
       send_packet(i, TAG_REQ);
     }
-    for (int i = rank; i < B + S; i++) {
+    for (int i = rank+1; i < B + S; i++) {
       send_packet(i, TAG_REQ);
     }
   }

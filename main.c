@@ -31,8 +31,8 @@ bool is_studentka = false;
 int liczba_sloikow = P;
 int liczba_konfitur = 0;
 
-int B = 2; // liczba babć
-int S = 2; // liczba studentek
+int B = 3; // liczba babć
+int S = 1; // liczba studentek
 
 typedef struct {
     int ts;
@@ -201,17 +201,17 @@ void enter_critical_section() {
     if (is_babcia) {
         liczba_sloikow--;
         has_jar = true;
-        debug("Zabieram słoik i zaczynam produkcję");
+        debug("Zabieram słoik");
     } else {
         liczba_konfitur--;
         has_jam = true;
-        debug("Zabieram konfiturę i zaczynam jedzenie");
+        debug("Zabieram konfiturę");
     }
 
     clockLamport++;
     broadcast_packet(TAG_REL);
     remove_from_queue(rank);
-    debug("Wysyłam REL do wszystkich");
+    debug("Wysyłam REL do wszystkich (zabrałam to co chciałam i wychodzę z krytycznej)");
 }
 
 void run_process() {
@@ -226,14 +226,14 @@ void run_process() {
                 }
             } else if (has_jar && !has_jam) {
                 debug("Rozpoczynam produkcję konfitury");
-                sleep(rand() % 2 + 1);
+                sleep(rand() % 6 + 1);
                 has_jar = false;
                 has_jam = true;
                 liczba_konfitur++;
                 broadcast_packet(TAG_FULL);
                 debug("Wysłałam FULL, mam konfiturę");
             } else if (has_jam) {
-                sleep(rand() % 2 + 1);
+                sleep(rand() % 13 + 1);
                 has_jam = false;
             }
         }
@@ -248,14 +248,14 @@ void run_process() {
                 }
             } else if (has_jam && !has_jar) {
                 debug("Zjadam konfiturę");
-                sleep(rand() % 2 + 1);
+                sleep(rand() % 8 + 1);
                 has_jam = false;
                 has_jar = true;
-                liczba_sloikow--;
+                liczba_sloikow++;
                 broadcast_packet(TAG_EMPTY);
                 debug("Wysłałam EMPTY, oddałam słoik");
             } else if (has_jar) {
-                sleep(rand() % 2 + 1);
+                sleep(rand() % 10 + 1);
                 has_jar = false;
             }
         }

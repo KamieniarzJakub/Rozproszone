@@ -11,9 +11,9 @@
 #define TRUE 1
 
 typedef struct {
-    int ts;
-    int src;
-    int data;
+  int ts;   // timer
+  int src;  // od kogo wysłane
+  int type; // jaki rodzaj - słoik czy dżem
 } packet_t;
 
 MPI_Datatype MPI_PAKIET_T;
@@ -28,3 +28,5 @@ void broadcast_event(enum event);
 void run_babcia(int rank, int size);
 void run_studentka(int rank, int size);
 void debug(const char *fmt, ...);
+
+void receive_condition();

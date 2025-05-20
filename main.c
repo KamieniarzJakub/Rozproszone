@@ -6,23 +6,22 @@
 #include <time.h>
 #include <unistd.h>
 
-#define P 3    // maksymalna liczba sloikow
-#define K 3    // maksymalna liczba konfitur
-#define ROOT 0 // Proces główny
-
 // Rodzaje wiadomości
 enum MESSAGES {
   // Żądanie pobranie zasobu (studentka - konfitury, babcia - słoika)
   TAG_REQ = 1,
   // Potwierdzenie i zezwolenie na zabranie zasobu przez inny proces
   TAG_ACK = 2,
-  TAG_REL = 3,
-  TAG_EVENT = 4,
+  TAG_REL = 3,   // Release
   TAG_EMPTY = 5, // Nowy pusty słoik
   TAG_FULL = 6   // Nowa konfitura
 };
 
-#define TRUE 1
+const int P = 3; // maksymalna liczba sloikow
+const int K = P; // maksymalna liczba konfitur
+const int ROOT = 0; // Proces główny
+const int B = 3; // liczba babć
+const int S = 4; // liczba studentek
 #define MAX_PROCESSES 32
 
 int clockLamport = 0;
@@ -36,8 +35,7 @@ bool is_studentka = false;
 int liczba_sloikow = P;
 int liczba_konfitur = 0;
 
-int B = 3; // liczba babć
-int S = 1; // liczba studentek
+
 
 typedef struct {
   int ts;   // timer
@@ -78,7 +76,7 @@ bool receive_condition() {
     resources_available = liczba_konfitur > 0;
   }
 
-  return !all_ack_received && is_first_in_queue() && resources_available;
+  return !(all_ack_received && is_first_in_queue() && resources_available);
 }
 
 void print_queue() {
@@ -194,10 +192,14 @@ const char *tag_status_disp(int tag) {
 }
 
 void receive_loop() {
+  // debug("Wchodzę do receive_loop");
+  // const bool d = receive_condition();s
+  // debug(d ? "receive_condition=True" : "receive_condition=False");
   packet_t pkt;
   MPI_Status status;
 
   while (receive_condition()) {
+    // debug(d ? "receive_condition=True" : "receive_condition=False");
     MPI_Recv(&pkt, 1, MPI_PACKET_T, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD,
              &status);
     inc_clock(pkt.ts);
@@ -241,13 +243,15 @@ void receive_loop() {
       break;
     }
   }
+
+  // debug("cos");
 }
 
 
 
 void enter_critical_section() {
   debug("Wchodzę do sekcji krytycznej");
-  // sleep(rand() % 2 + 1);
+  sleep(rand() % 2 + 1);
   clockLamport++;
 
   if (is_babcia) {
@@ -267,7 +271,7 @@ void enter_critical_section() {
 }
 
 void run_process() {
-    while (TRUE) {
+    while (true) {
         if (is_babcia) {
             if (!has_jar && !has_jam) {
                 request_resource();

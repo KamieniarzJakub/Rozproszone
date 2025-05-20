@@ -53,7 +53,7 @@ packet_t queue_konfitury[MAX_PROCESSES];
 int queue_konfitury_size = 0;
 
 void inc_clock(int received_ts) {
-  clockLamport = (clockLamport, received_ts) + 1;
+  clockLamport = (clockLamport > received_ts ? clockLamport : received_ts) + 1;
 }
 
 bool is_first_in_queue() {
@@ -124,7 +124,7 @@ int compare_packet(const void *a, const void *b) {
 }
 
 void add_to_queue(packet_t pkt) {
-  if (is_babcia || pkt.src < B) { // TODO
+  if (is_babcia || pkt.src < B) {
     queue_sloiki[queue_sloiki_size++] = pkt;
     qsort(queue_sloiki, queue_sloiki_size, sizeof(packet_t), compare_packet);
   } else {
@@ -135,7 +135,7 @@ void add_to_queue(packet_t pkt) {
 }
 
 
-void remove_from_queue(int src) { // TODO
+void remove_from_queue(int src) {
   int *size = is_babcia ? &queue_sloiki_size : &queue_konfitury_size;
   packet_t *queue = is_babcia ? queue_sloiki : queue_konfitury;
   for (int i = 0; i < *size; i++) {

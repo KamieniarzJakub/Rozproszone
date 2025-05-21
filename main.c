@@ -94,21 +94,21 @@ void print_queue() {
 }
 
 void list_to_str(packet_t* queue, int len, char** out_ptr) {
-  int current_len = 1; // Start with space for the null terminator
+  int current_len = 1; // space for the null terminator
   *out_ptr = (char*)malloc(current_len * sizeof(char));
   if (*out_ptr == NULL) {
     fprintf(stderr, "MALLOC ERROR\n");
     exit(1);
   }
-  (*out_ptr)[0] = '\0'; // Initialize as an empty string
+  (*out_ptr)[0] = '\0';
 
   char* out = *out_ptr;
   int index = 0;
 
   for (int i = 0; i < len; i++) {
-    int needed = snprintf(NULL, 0, "%d:%d,", (queue + i)->src, (queue + i)->ts);
+    int needed = snprintf(NULL, 0, "%d->%d,", (queue + i)->src, (queue + i)->ts);
     if (index + needed >= current_len) {
-      current_len += needed + 1; // +1 for potential next comma and null terminator
+      current_len += needed + 1; // +1 for next comma and null terminator
       char* temp = (char*)realloc(out, current_len * sizeof(char));
       if (temp == NULL) {
         fprintf(stderr, "REALLOC ERROR\n");
@@ -116,9 +116,9 @@ void list_to_str(packet_t* queue, int len, char** out_ptr) {
         exit(1);
       }
       out = temp;
-      *out_ptr = out; // Update the pointer
+      *out_ptr = out;
     }
-    index += sprintf(out + index, "%d:%d,", (queue + i)->src, (queue + i)->ts);
+    index += sprintf(out + index, "%d->%d,", (queue + i)->src, (queue + i)->ts);
   }
 
   // Remove the trailing comma if the list is not empty

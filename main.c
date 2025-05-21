@@ -5,6 +5,12 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
+
+pthread_t receiver_thread;
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+bool can_proceed = false;
 
 // Rodzaje wiadomości
 enum MESSAGES {
@@ -200,30 +206,7 @@ void remove_from_queue(int src) {
   }
 }
 
-void request_resource() {
-  clockLamport++;
-  memset(waiting_ack, 0, sizeof(waiting_ack));
-  ack_count = 0;
-  packet_t pkt = {.ts = clockLamport, .src = rank, .type = TAG_REQ};
-  add_to_queue(pkt);
-  if (is_babcia) {
-    for (int i = 0; i < rank; i++) {
-      send_packet(i, TAG_REQ);
-    }
-    for (int i = rank+1; i < B; i++) {
-      send_packet(i, TAG_REQ);
-    }
-  } else if (is_studentka) {
-    for (int i = B; i < rank; i++) {
-      send_packet(i, TAG_REQ);
-    }
-    for (int i = rank+1; i < B + S; i++) {
-      send_packet(i, TAG_REQ);
-    }
-  }
 
-  debug(is_babcia ? "Wysyłam prośbę o słoik" : "Wysyłam prośbę o konfiturę");
-}
 
 const char *tag_status_disp(int tag) {
   switch (tag) {
@@ -242,61 +225,102 @@ const char *tag_status_disp(int tag) {
   }
 }
 
-void receive_loop() {
+
+void *receive_thread_func(void *arg) {
   packet_t pkt;
   MPI_Status status;
 
-  while (receive_condition()) {
-    MPI_Recv(&pkt, 1, MPI_PACKET_T, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD,
-             &status);
+  while (true) {
+    MPI_Recv(&pkt, 1, MPI_PACKET_T, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+    pthread_mutex_lock(&mutex);
     inc_clock(pkt.ts);
 
     char buf[128];
-    snprintf(buf, sizeof(buf), "Otrzymałam %s od [%d]",
-             tag_status_disp(status.MPI_TAG), pkt.src);
+    snprintf(buf, sizeof(buf), "Otrzymałam %s od [%d]", tag_status_disp(status.MPI_TAG), pkt.src);
 
     switch (status.MPI_TAG) {
-    case TAG_REQ:
-      if ((is_babcia && pkt.src < B) ||
-          (is_studentka && pkt.src >= B && pkt.src < B + S)) {
-        add_to_queue(pkt);
-        send_packet(pkt.src, TAG_ACK);
+      case TAG_REQ:
+        if ((is_babcia && pkt.src < B) || (is_studentka && pkt.src >= B && pkt.src < B + S)) {
+          add_to_queue(pkt);
+          send_packet(pkt.src, TAG_ACK);
+          debug(buf);
+        }
+        break;
+      case TAG_ACK:
+        if (!waiting_ack[pkt.src]) {
+          ack_count++;
+          waiting_ack[pkt.src] = true;
+          debug(buf);
+        }
+        break;
+      case TAG_REL:
+        remove_from_queue(pkt.src);
+        if (pkt.src < B) {
+          liczba_sloikow--;
+        } else {
+          liczba_konfitur--;
+        }
         debug(buf);
-      }
-      break;
-    case TAG_ACK:
-      if (!waiting_ack[pkt.src]) {
-        ack_count++;
-        waiting_ack[pkt.src] = true;
+        break;
+      case TAG_EMPTY:
+        liczba_sloikow++;
         debug(buf);
-      }
-      break;
-    case TAG_REL:
-      remove_from_queue(pkt.src);
-      if (pkt.src < B) { // babcia
-        liczba_sloikow--;
-      } else { // studentka
-        liczba_konfitur--;
-      }
-      debug(buf);
-      break;
-    case TAG_EMPTY:
-      liczba_sloikow++;
-      debug(buf);
-      break;
-    case TAG_FULL:
-      liczba_konfitur++;
-      debug(buf);
-      break;
+        break;
+      case TAG_FULL:
+        liczba_konfitur++;
+        debug(buf);
+        break;
     }
+
+    if (!receive_condition()) {
+      can_proceed = true;
+      pthread_cond_signal(&cond);
+    }
+
+    pthread_mutex_unlock(&mutex);
   }
+
+  return NULL;
+}
+
+void wait_until_can_proceed() {
+  pthread_mutex_lock(&mutex);
+  while (receive_condition()) {
+    pthread_cond_wait(&cond, &mutex);
+  }
+  pthread_mutex_unlock(&mutex);
 }
 
 
+void request_resource() {
+  pthread_mutex_lock(&mutex);
+  clockLamport++;
+  memset(waiting_ack, 0, sizeof(waiting_ack));
+  ack_count = 0;
+  packet_t pkt = {.ts = clockLamport, .src = rank, .type = TAG_REQ};
+  add_to_queue(pkt);
+
+  if (is_babcia) {
+    for (int i = 0; i < rank; i++) send_packet(i, TAG_REQ);
+    for (int i = rank + 1; i < B; i++) send_packet(i, TAG_REQ);
+  } else if (is_studentka) {
+    for (int i = B; i < rank; i++) send_packet(i, TAG_REQ);
+    for (int i = rank + 1; i < B + S; i++) send_packet(i, TAG_REQ);
+  }
+
+  debug(is_babcia ? "Wysyłam prośbę o słoik" : "Wysyłam prośbę o konfiturę");
+  pthread_mutex_unlock(&mutex);
+}
 
 void enter_critical_section() {
+  pthread_mutex_lock(&mutex);
   debug("Wchodzę do sekcji krytycznej");
+  pthread_mutex_unlock(&mutex);
+
   sleep(rand() % 2 + 1);
+
+  pthread_mutex_lock(&mutex);
   clockLamport++;
 
   if (is_babcia) {
@@ -309,61 +333,77 @@ void enter_critical_section() {
     debug("Zabieram konfiturę");
   }
 
-    clockLamport++;
-    broadcast_packet(TAG_REL);
-    remove_from_queue(rank);
-    debug("Wysyłam REL do wszystkich (zabrałam to co chciałam i wychodzę z krytycznej)");
+  clockLamport++;
+  broadcast_packet(TAG_REL);
+  remove_from_queue(rank);
+  debug("Wysyłam REL do wszystkich (zabrałam to co chciałam i wychodzę z krytycznej)");
+  pthread_mutex_unlock(&mutex);
 }
 
 void run_process() {
-    while (true) {
-        if (is_babcia) {
-            if (!has_jar && !has_jam) {
-                request_resource();
-                receive_loop();
-                if (ack_count == B - 1 && is_first_in_queue() && liczba_sloikow > 0) {
-                    enter_critical_section();
-                    has_jar = true;
-                }
-            } else if (has_jar && !has_jam) {
-                debug("Rozpoczynam produkcję konfitury");
-                sleep(rand() % 6 + 1);
-                has_jar = false;
-                has_jam = true;
-                liczba_konfitur++;
-                broadcast_packet(TAG_FULL);
-                debug("Wysłałam FULL, mam konfiturę");
-            } else if (has_jam) {
-                sleep(rand() % 13 + 1);
-                has_jam = false;
-            }
+  while (true) {
+    if (is_babcia) {
+      if (!has_jar && !has_jam) {
+        request_resource();
+        wait_until_can_proceed();
+        pthread_mutex_lock(&mutex);
+        if (ack_count == B - 1 && is_first_in_queue() && liczba_sloikow > 0) {
+          pthread_mutex_unlock(&mutex);
+          enter_critical_section();
+        } else {
+          pthread_mutex_unlock(&mutex);
         }
+      } else if (has_jar && !has_jam) {
+        debug("Rozpoczynam produkcję konfitury");
+        sleep(rand() % 6 + 1);
+        pthread_mutex_lock(&mutex);
+        has_jar = false;
+        has_jam = true;
+        liczba_konfitur++;
+        broadcast_packet(TAG_FULL);
+        debug("Wysłałam FULL, mam konfiturę");
+        pthread_mutex_unlock(&mutex);
+      } else if (has_jam) {
+        sleep(rand() % 13 + 1);
+        pthread_mutex_lock(&mutex);
+        has_jam = false;
+        pthread_mutex_unlock(&mutex);
+      }
+    }
 
-        if (is_studentka) {
-            if (!has_jam && !has_jar) {
-                request_resource();
-                receive_loop();
-                if (ack_count == S - 1 && is_first_in_queue() && liczba_konfitur > 0) {
-                    enter_critical_section();
-                    has_jam = true;
-                }
-            } else if (has_jam && !has_jar) {
-                debug("Zjadam konfiturę");
-                sleep(rand() % 8 + 1);
-                has_jam = false;
-                has_jar = true;
-                liczba_sloikow++;
-                broadcast_packet(TAG_EMPTY);
-                debug("Wysłałam EMPTY, oddałam słoik");
-            } else if (has_jar) {
-                sleep(rand() % 10 + 1);
-                has_jar = false;
-            }
+    if (is_studentka) {
+      if (!has_jam && !has_jar) {
+        request_resource();
+        wait_until_can_proceed();
+        pthread_mutex_lock(&mutex);
+        if (ack_count == S - 1 && is_first_in_queue() && liczba_konfitur > 0) {
+          pthread_mutex_unlock(&mutex);
+          enter_critical_section();
+        } else {
+          pthread_mutex_unlock(&mutex);
         }
+      } else if (has_jam && !has_jar) {
+        debug("Zjadam konfiturę");
+        sleep(rand() % 8 + 1);
+        pthread_mutex_lock(&mutex);
+        has_jam = false;
+        has_jar = true;
+        liczba_sloikow++;
+        broadcast_packet(TAG_EMPTY);
+        debug("Wysłałam EMPTY, oddałam słoik");
+        pthread_mutex_unlock(&mutex);
+      } else if (has_jar) {
+        sleep(rand() % 10 + 1);
+        pthread_mutex_lock(&mutex);
+        has_jar = false;
+        pthread_mutex_unlock(&mutex);
+      }
+    }
 
     sleep(1);
   }
 }
+
 
 void init_packet_type() {
   const int count = 3;
@@ -380,53 +420,50 @@ int main(int argc, char **argv) {
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-  if(argc<2){
-    if (rank==0) fprintf(stderr, "Program usage : %s <ile_babci> [liczba_dostępnych_słoików] [csv_format]\n", argv[0]);
+  if (argc < 2) {
+    if (rank == 0)
+      fprintf(stderr, "Użycie: %s <ile_babci> [liczba_sloikow] [csv]\n", argv[0]);
     MPI_Abort(MPI_COMM_WORLD, 1);
     return 1;
   }
+
   B = atoi(argv[1]);
-  if(B<1 || B >=size)
-  {
-    if(rank==0) fprintf(stderr, "Error: Liczba babci nie może być większa lub równa liczbie procesów, ani ujemna");
+  if (B < 1 || B >= size) {
+    if (rank == 0)
+      fprintf(stderr, "Błędna liczba babć\n");
     MPI_Abort(MPI_COMM_WORLD, 2);
     return 2;
   }
-  
-  if(argc>=3)
-  {
+
+  if (argc >= 3) {
     P = atoi(argv[2]);
-    if(P<1)
-    {
-        if(rank==0) fprintf(stderr, "Dostępna liczba słoików musi być większa od zera");
-        MPI_Abort(MPI_COMM_WORLD, 3);
-        return 3; 
+    if (P < 1) {
+      if (rank == 0)
+        fprintf(stderr, "Liczba słoików musi być > 0\n");
+      MPI_Abort(MPI_COMM_WORLD, 3);
+      return 3;
     }
-  }
-  else
-  {
+  } else {
     P = B;
   }
+
   S = size - B;
   K = P;
   liczba_sloikow = P;
-  if(argc>=4 && atoi(argv[3])) 
-    csv_mode = true;
+  if (argc >= 4 && atoi(argv[3])) csv_mode = true;
 
-  if (csv_mode && rank == 0){
+  if (csv_mode && rank == 0) {
     printf("rank,clock,proc_type,message,sloiki,konfitury,has_jar,has_jam,jar_queue,jam_queue,recv_ack,needed_ack\n");
   }
-  // if(rank==0) 
-  //   printf("Liczba babci: %d\nLiczba studentek:%d\nLiczba słoików: %d\nTryb csv: %s\n---------------------------------\n\n", B, S, P, csv_mode?"true":"false");
-  sleep(1);
 
   srand(time(NULL) + rank);
   init_packet_type();
-
   is_babcia = (rank < B);
   is_studentka = (rank >= B && rank < B + S);
 
   debug("Start procesu");
+
+  pthread_create(&receiver_thread, NULL, receive_thread_func, NULL);
 
   run_process();
 

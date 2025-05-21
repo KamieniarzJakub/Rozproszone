@@ -1,5 +1,6 @@
 main
 log.txt
+log1.csv
 log_in_order.txt
 .vscode
 .env

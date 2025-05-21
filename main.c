@@ -34,13 +34,13 @@ bool is_babcia = false;
 bool is_studentka = false;
 int liczba_sloikow = P;
 int liczba_konfitur = 0;
-
+const bool csv = true;
 
 
 typedef struct {
-  int ts;   // timer
+  int ts;   // zegar Lamporta
   int src;  // od kogo wysłane
-  int type; // jaki rodzaj - słoik czy dżem
+  int type; // jaki rodzaj (enum MESSAGES)
 } packet_t;
 
 MPI_Datatype MPI_PACKET_T;
@@ -92,15 +92,65 @@ void print_queue() {
   fflush(stdout);
 }
 
+void list_to_str(packet_t* queue, int len, char** out_ptr) {
+  int current_len = 1; // Start with space for the null terminator
+  *out_ptr = (char*)malloc(current_len * sizeof(char));
+  if (*out_ptr == NULL) {
+    fprintf(stderr, "MALLOC ERROR\n");
+    exit(1);
+  }
+  (*out_ptr)[0] = '\0'; // Initialize as an empty string
+
+  char* out = *out_ptr;
+  int index = 0;
+
+  for (int i = 0; i < len; i++) {
+    int needed = snprintf(NULL, 0, "%d:%d,", (queue + i)->src, (queue + i)->ts);
+    if (index + needed >= current_len) {
+      current_len += needed + 1; // +1 for potential next comma and null terminator
+      char* temp = (char*)realloc(out, current_len * sizeof(char));
+      if (temp == NULL) {
+        fprintf(stderr, "REALLOC ERROR\n");
+        free(out);
+        exit(1);
+      }
+      out = temp;
+      *out_ptr = out; // Update the pointer
+    }
+    index += sprintf(out + index, "%d:%d,", (queue + i)->src, (queue + i)->ts);
+  }
+
+  // Remove the trailing comma if the list is not empty
+  if (len > 0 && index > 0) {
+    out[index - 1] = '\0';
+  }
+}
 void debug(const char *message) {
-  const char *role =
-      is_babcia ? "Babcia" : (is_studentka ? "Studentka" : "Proces");
-  printf("[%d][%d][%s] %s [sloiki: %d, konfitury: %d, has_jar: %d, has_jam: "
-         "%d, ACK: %d/%d]\n",
-         rank, clockLamport, role, message, liczba_sloikow, liczba_konfitur,
-         has_jar, has_jam, ack_count, is_babcia ? B - 1 : S - 1);
-  print_queue();
-  fflush(stdout);
+  const char *role = is_babcia ? "Babcia" : (is_studentka ? "Studentka" : "Proces");
+  const int required_ack = is_babcia ? B - 1 : S - 1;
+
+  if (csv){
+    char* out_konfitury = NULL;
+    list_to_str(queue_konfitury,queue_konfitury_size,&out_konfitury);
+
+    char* out_sloiki = NULL;
+    list_to_str(queue_sloiki,queue_sloiki_size,&out_sloiki);
+
+    printf("%d,%d,%s,\"%s\",%d,%d,%d,%d,\"%s\",\"%s\",%d,%d\n",
+      rank,clockLamport,role,message,liczba_sloikow,liczba_konfitur,
+      has_jar,has_jam,out_sloiki,out_konfitury,ack_count,required_ack
+    );
+
+    free(out_konfitury);
+    free(out_sloiki);
+  } else {
+      printf("[%d][%d][%s] %s [sloiki: %d, konfitury: %d, has_jar: %d, has_jam: "
+        "%d, ACK: %d/%d]\n",
+        rank, clockLamport, role, message, liczba_sloikow, liczba_konfitur,
+        has_jar, has_jam, ack_count, required_ack);
+    print_queue();
+    fflush(stdout);
+  }
 }
 
 void send_packet(int dst, int tag) {
@@ -334,6 +384,10 @@ int main(int argc, char **argv) {
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  if (csv && rank == 0){
+    printf("rank,clock,proc_type,message,sloiki,konfitury,has_jar,has_jam,jar_queue,jam_queue,recv_ack,needed_ack\n");
+  }
+  sleep(1);
 
   srand(time(NULL) + rank);
   init_packet_type();

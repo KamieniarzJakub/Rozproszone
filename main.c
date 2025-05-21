@@ -409,6 +409,7 @@ int main(int argc, char **argv) {
   }
   S = size - B;
   K = P;
+  liczba_sloikow = P;
   if(argc>=4 && atoi(argv[3])) 
     csv_mode = true;
 

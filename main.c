@@ -36,7 +36,6 @@ bool is_babcia = false;
 bool is_studentka = false;
 int liczba_sloikow = 0;
 int liczba_konfitur = 0;
-const bool csv = true;
 
 
 typedef struct {
@@ -131,7 +130,7 @@ void debug(const char *message) {
   const char *role = is_babcia ? "Babcia" : (is_studentka ? "Studentka" : "Proces");
   const int required_ack = is_babcia ? B - 1 : S - 1;
 
-  if (csv){
+  if (csv_mode){
     char* out_konfitury = NULL;
     list_to_str(queue_konfitury,queue_konfitury_size,&out_konfitury);
 
@@ -380,10 +379,6 @@ int main(int argc, char **argv) {
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  if (csv && rank == 0){
-    printf("rank,clock,proc_type,message,sloiki,konfitury,has_jar,has_jam,jar_queue,jam_queue,recv_ack,needed_ack\n");
-  }
-  sleep(1);
 
   if(argc<2){
     if (rank==0) fprintf(stderr, "Program usage : %s <ile_babci> [liczba_dostępnych_słoików] [csv_format]\n", argv[0]);
@@ -416,8 +411,12 @@ int main(int argc, char **argv) {
   K = P;
   if(argc>=4 && atoi(argv[3])) 
     csv_mode = true;
-  if(rank==0) 
-    printf("Liczba babci: %d\nLiczba studentek:%d\nLiczba słoików: %d\nTryb csv: %s\n---------------------------------\n\n", B, S, P, csv_mode?"true":"false");
+
+  if (csv_mode && rank == 0){
+    printf("rank,clock,proc_type,message,sloiki,konfitury,has_jar,has_jam,jar_queue,jam_queue,recv_ack,needed_ack\n");
+  }
+  // if(rank==0) 
+  //   printf("Liczba babci: %d\nLiczba studentek:%d\nLiczba słoików: %d\nTryb csv: %s\n---------------------------------\n\n", B, S, P, csv_mode?"true":"false");
   sleep(1);
 
   srand(time(NULL) + rank);

@@ -17,11 +17,13 @@ enum MESSAGES {
   TAG_FULL = 6   // Nowa konfitura
 };
 
-const int P = 3; // maksymalna liczba sloikow
-const int K = P; // maksymalna liczba konfitur
 const int ROOT = 0; // Proces główny
-const int B = 3; // liczba babć
-const int S = 4; // liczba studentek
+
+int P = 0; // maksymalna liczba sloikow
+int K = 0; // maksymalna liczba konfitur
+int B = 3; // liczba babć
+int S = 4; // liczba studentek
+bool csv_mode = false;
 #define MAX_PROCESSES 32
 
 int clockLamport = 0;
@@ -32,7 +34,7 @@ bool has_jar = false;
 bool has_jam = false;
 bool is_babcia = false;
 bool is_studentka = false;
-int liczba_sloikow = P;
+int liczba_sloikow = 0;
 int liczba_konfitur = 0;
 
 
@@ -192,14 +194,10 @@ const char *tag_status_disp(int tag) {
 }
 
 void receive_loop() {
-  // debug("Wchodzę do receive_loop");
-  // const bool d = receive_condition();s
-  // debug(d ? "receive_condition=True" : "receive_condition=False");
   packet_t pkt;
   MPI_Status status;
 
   while (receive_condition()) {
-    // debug(d ? "receive_condition=True" : "receive_condition=False");
     MPI_Recv(&pkt, 1, MPI_PACKET_T, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD,
              &status);
     inc_clock(pkt.ts);
@@ -243,8 +241,6 @@ void receive_loop() {
       break;
     }
   }
-
-  // debug("cos");
 }
 
 
@@ -334,6 +330,41 @@ int main(int argc, char **argv) {
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+  if(argc<2){
+    if (rank==0) fprintf(stderr, "Program usage : %s <ile_babci> [liczba_dostępnych_słoików] [csv_format]\n", argv[0]);
+    MPI_Abort(MPI_COMM_WORLD, 1);
+    return 1;
+  }
+  B = atoi(argv[1]);
+  if(B<1 || B >=size)
+  {
+    if(rank==0) fprintf(stderr, "Error: Liczba babci nie może być większa lub równa liczbie procesów, ani ujemna");
+    MPI_Abort(MPI_COMM_WORLD, 2);
+    return 2;
+  }
+  
+  if(argc>=3)
+  {
+    P = atoi(argv[2]);
+    if(P<1)
+    {
+        if(rank==0) fprintf(stderr, "Dostępna liczba słoików musi być większa od zera");
+        MPI_Abort(MPI_COMM_WORLD, 3);
+        return 3; 
+    }
+  }
+  else
+  {
+    P = B;
+  }
+  S = size - B;
+  K = P;
+  if(argc>=4 && atoi(argv[3])) 
+    csv_mode = true;
+  if(rank==0) 
+    printf("Liczba babci: %d\nLiczba studentek:%d\nLiczba słoików: %d\nTryb csv: %s\n---------------------------------\n\n", B, S, P, csv_mode?"true":"false");
+  sleep(1);
 
   srand(time(NULL) + rank);
   init_packet_type();

@@ -193,14 +193,14 @@ void add_to_queue(packet_t pkt) {
 
 
 void remove_from_queue(int src) {
-  int *size = is_babcia ? &queue_sloiki_size : &queue_konfitury_size;
+  int size = is_babcia ? queue_sloiki_size : queue_konfitury_size;
   packet_t *queue = is_babcia ? queue_sloiki : queue_konfitury;
-  for (int i = 0; i < *size; i++) {
+  for (int i = 0; i < size; i++) {
     if (queue[i].src == src) {
-      for (int j = i; j < *size - 1; j++) {
+      for (int j = i; j < size - 1; j++) {
         queue[j] = queue[j + 1];
       }
-      (*size)--;
+      size--;
       break;
     }
   }
@@ -316,11 +316,9 @@ void request_resource() {
 void enter_critical_section() {
   pthread_mutex_lock(&mutex);
   debug("Wchodzę do sekcji krytycznej");
-  pthread_mutex_unlock(&mutex);
 
   sleep(rand() % 2 + 1);
 
-  pthread_mutex_lock(&mutex);
   clockLamport++;
 
   if (is_babcia) {

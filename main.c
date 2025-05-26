@@ -144,7 +144,7 @@ void debug(const char *message) {
     char* out_sloiki = NULL;
     list_to_str(queue_sloiki,queue_sloiki_size,&out_sloiki);
 
-    printf("%d,%d,%s,\"%s\",%d,%d,%d,%d,\"%s\",\"%s\",%d,%d\n",
+    printf("%d;%d;%s;\"%s\";%d;%d;%d;%d;\"%s\";\"%s\";%d;%d\n",
       rank,clockLamport,role,message,liczba_sloikow,liczba_konfitur,
       has_jar,has_jam,out_sloiki,out_konfitury,ack_count,required_ack
     );
@@ -316,7 +316,7 @@ void request_resource() {
 
 void enter_critical_section() {
   sleep(rand() % 2 + 1);
-  
+
   pthread_mutex_lock(&mutex);
   debug("Wchodzę do sekcji krytycznej");
 
@@ -448,7 +448,7 @@ int main(int argc, char **argv) {
   if (argc >= 4 && atoi(argv[3])) csv_mode = true;
 
   if (csv_mode && rank == 0) {
-    printf("rank,clock,proc_type,message,sloiki,konfitury,has_jar,has_jam,jar_queue,jam_queue,recv_ack,needed_ack\n");
+    printf("rank;clock;proc_type;message;sloiki;konfitury;has_jar;has_jam;jar_queue;jam_queue;recv_ack;needed_ack\n");
   }
 
   srand(time(NULL) + rank);

@@ -6,6 +6,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <signal.h>
 
 pthread_t receiver_thread;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -413,10 +414,18 @@ void init_packet_type() {
   MPI_Type_commit(&MPI_PACKET_T);
 }
 
+int finalize(int signo){
+  MPI_Type_free(&MPI_PACKET_T);
+  MPI_Finalize();
+}
+
 int main(int argc, char **argv) {
   MPI_Init(&argc, &argv);
   MPI_Comm_size(MPI_COMM_WORLD, &size);
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  signal(SIGINT,finalize);
+  signal(SIGCHLD,finalize);
+  signal(SIGKILL,finalize);
 
   if (argc < 2) {
     if (rank == 0)
@@ -465,7 +474,5 @@ int main(int argc, char **argv) {
 
   run_process();
 
-  MPI_Type_free(&MPI_PACKET_T);
-  MPI_Finalize();
   return 0;
 }

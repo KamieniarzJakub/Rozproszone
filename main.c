@@ -315,10 +315,10 @@ void request_resource() {
 }
 
 void enter_critical_section() {
+  sleep(rand() % 2 + 1);
+  
   pthread_mutex_lock(&mutex);
   debug("Wchodzę do sekcji krytycznej");
-
-  sleep(rand() % 2 + 1);
 
   clockLamport++;
 

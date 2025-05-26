@@ -402,7 +402,7 @@ void init_packet_type() {
   MPI_Type_commit(&MPI_PACKET_T);
 }
 
-int finalize(int signo){
+void finalize(int signo){
   MPI_Type_free(&MPI_PACKET_T);
   MPI_Finalize();
 }

@@ -335,7 +335,7 @@ void enter_critical_section() {
   clockLamport++;
   broadcast_packet(TAG_REL);
   remove_from_queue(rank);
-  debug("Wysyłam REL do wszystkich (zabrałam to co chciałam i wychodzę z krytycznej)");
+  debug("Wysyłam REL do wszystkich, wychodzę z krytycznej");
   pthread_mutex_unlock(&mutex);
 }
 
@@ -345,13 +345,7 @@ void run_process() {
       if (!has_jar && !has_jam) {
         request_resource();
         wait_until_can_proceed();
-        pthread_mutex_lock(&mutex);
-        if (ack_count == B - 1 && is_first_in_queue() && liczba_sloikow > 0) {
-          pthread_mutex_unlock(&mutex);
-          enter_critical_section();
-        } else {
-          pthread_mutex_unlock(&mutex);
-        }
+        enter_critical_section();
       } else if (has_jar && !has_jam) {
         debug("Rozpoczynam produkcję konfitury");
         sleep(rand() % 6 + 1);
@@ -374,13 +368,7 @@ void run_process() {
       if (!has_jam && !has_jar) {
         request_resource();
         wait_until_can_proceed();
-        pthread_mutex_lock(&mutex);
-        if (ack_count == S - 1 && is_first_in_queue() && liczba_konfitur > 0) {
-          pthread_mutex_unlock(&mutex);
-          enter_critical_section();
-        } else {
-          pthread_mutex_unlock(&mutex);
-        }
+        enter_critical_section();
       } else if (has_jam && !has_jar) {
         debug("Zjadam konfiturę");
         sleep(rand() % 8 + 1);

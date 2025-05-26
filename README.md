@@ -1,9 +1,9 @@
-TODO:
-* parametryzacja zapytań
-* zwiększenie różnicy czasu - modyfikacja rand, tak aby kolejne wątki się bardziej desynchronizowały (np. poprzez uśpienie danego wątku na pewien dłuższy czas)
+# Projekt na programowanie rozproszone
 
+Babcie i studentki
 
-Opis problemu: <br/>
+## Opis problemu: <br/>
+
 Grupa emerytek bardzo chciałaby robić konfitury dla wnuczek, tylko że niestety wnuczek nie mają. Na szczęście grupa studentek Uniwersytetu Artystycznego chciałaby, by ktoś je dokarmiał - więc wspólnie emerytki i studentki założyły stowarzyszenie, gdzie babcie tworzą konfitury, a studentki je zjadają, po czym oddają słoiki emerytkom.
 
 Procesy: B babć i S studentek<br/>
@@ -29,3 +29,20 @@ Studentki jak usłyszały o inicjatywie, były bardzo zadowolone i głodne. Dozw
 Babcie potraktowały to wyzwanie niezwykle poważnie, powszechną wiedzą jest, że niezwykłym zaszczytem jest stworzenie konfitury, dlatego babcie czasem walczą o kolejność. Tutaj analogicznie zdecydowały się ostatecznie uzgodnić kolejkę za pomocą algorytmu Ricarta-Agrawali (Zegar Lamporta, potem ranga). Studentki podeślą im SMS, jak dany słoik się zwolni (“Release” w formie broadcastu zdarzenia E do babć)
 
 Gdy odpowiedni proces ma już zasób na wyłączność (babcia - słoik, studentka - konfiturę), to jego zużyciu rozgłasza wiadomość do wszystkich procesów drugiej grupy. Każdy z tych procesów utrzymuje odpowiednie liczniki zasobu na który czeka.
+
+## Kompilacja
+
+```sh
+make
+```
+
+## Uruchomienie
+
+```
+mpirun -np N ./main B P C
+```
+
+N - liczba procesów łącznie (babcie + studentki), int
+B - liczba babć, int
+P - początkowa liczba słoików, int
+C - (opcjonalne) czy wyświetlać dane w formacie CSV, dowolny znak

@@ -314,22 +314,17 @@ void enter_critical_section() {
 
   clockLamport++;
 
-  if (is_babcia) {
-    // Babcia wysyła opóźnione potwierdzenia wejścia do sekcji krytycznej
-    // TODO
-  } else {
-    // Studentka wysyła opóźnione potwierdzenia wejścia do sekcji krytycznej
-    // TODO
+  // wysyła opóźnione potwierdzenia wejścia do sekcji krytycznej
+  for (int i = 0; i < deferred_queue_size; i++) {
+    send_packet(i, TAG_ACK);
   }
+  deferred_queue_size = 0;
 
-  // TODO: Instead of broadcast to all the process should ONLY send messages to:
-  //  - TAG_ACK message to all the deferred requests.
   for (int i = 0; i < size; i++) {
     if (i != rank)
       send_packet(i, TAG_REL);
   }
 
-  // remove_from_queue(rank);
   debug("Wysyłam REL do wszystkich, wychodzę z krytycznej");
   in_cs = false;
   pthread_mutex_unlock(&mutex);

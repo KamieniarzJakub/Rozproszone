@@ -161,7 +161,7 @@ int compare_packet(const void *a, const void *b) {
 
 void add_to_queue(packet_t pkt) {
   if (deferred_queue_size >= B + S) {
-    fprintf(stderr, "TRYING TO ADD MORE PACKETS TO QUEUE THAN ALLOWED");
+    fprintf(stderr, "TRYING TO ADD MORE PACKETS TO QUEUE THAN ALLOWED\n");
     return;
   }
   deffered_queue[deferred_queue_size++] = pkt;
@@ -178,7 +178,7 @@ void remove_from_queue(int src) {
       break;
     }
   }
-  fprintf(stderr, "TRYING TO REMOVE NONEXISTENT ID: %d", src);
+  fprintf(stderr, "TRYING TO REMOVE NONEXISTENT ID: %d\n", src);
 }
 
 const char *tag_status_disp(int tag) {
@@ -201,7 +201,7 @@ const char *tag_status_disp(int tag) {
 bool has_priority(int ts2, int p2) {
   if (clockLamport > ts2) {
     return true;
-  } else if (clockLamport == ts2 && rank > p2) {
+  } else if (clockLamport == ts2 && rank < p2) {
     return true;
   } else {
     return false;
@@ -246,7 +246,7 @@ void *receive_thread_func(void *arg) {
       }
       break;
     case TAG_REL:
-      remove_from_queue(pkt.src);
+      // remove_from_queue(pkt.src);
       if (pkt.src < B) {
         liczba_sloikow--;
       } else {

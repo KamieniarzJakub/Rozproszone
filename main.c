@@ -12,6 +12,7 @@
 pthread_t receiver_thread;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+bool in_cs = false;
 
 // Rodzaje wiadomości
 enum MESSAGES {
@@ -215,21 +216,22 @@ void *receive_thread_func(void *arg) {
     case TAG_REQ:
       if ((is_babcia && pkt.src < B) ||
           (is_studentka && pkt.src >= B && pkt.src < B + S)) {
-        add_to_queue(pkt);
-        // Najpierw trzeba sprawdzić czy nie jesteśmy obecnie w sekcji
-        // krytycznej, jeśli tak to zapisujemy to do kolejki W przeciwnym razie
-        // wysyłamy odpowiedź
-        // TODO:
 
-        send_packet(pkt.src, TAG_ACK);
-        debug(buf);
+        // Najpierw trzeba sprawdzić czy nie jesteśmy obecnie w sekcji
+        // krytycznej
+        if (in_cs) {
+          // jeśli tak to zapisujemy to do kolejki
+          add_to_queue(pkt);
+        } else {
+          // W przeciwnym razie wysyłamy odpowiedź
+          send_packet(pkt.src, TAG_ACK);
+        }
       }
       break;
     case TAG_ACK:
       if (!waiting_ack[pkt.src]) {
         ack_count++;
         waiting_ack[pkt.src] = true;
-        debug(buf);
       }
       break;
     case TAG_REL:
@@ -239,17 +241,15 @@ void *receive_thread_func(void *arg) {
       } else {
         liczba_konfitur--;
       }
-      debug(buf);
       break;
     case TAG_EMPTY:
       liczba_sloikow++;
-      debug(buf);
       break;
     case TAG_FULL:
       liczba_konfitur++;
-      debug(buf);
       break;
     }
+    debug(buf);
 
     if (!receive_condition()) {
       pthread_cond_signal(&cond);
@@ -266,6 +266,7 @@ void wait_until_can_proceed() {
   while (receive_condition()) {
     pthread_cond_wait(&cond, &mutex);
   }
+  in_cs = true;
   pthread_mutex_unlock(&mutex);
 }
 
@@ -330,6 +331,7 @@ void enter_critical_section() {
 
   // remove_from_queue(rank);
   debug("Wysyłam REL do wszystkich, wychodzę z krytycznej");
+  in_cs = false;
   pthread_mutex_unlock(&mutex);
 }
 

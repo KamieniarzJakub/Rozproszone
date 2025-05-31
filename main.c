@@ -97,19 +97,21 @@ void debug(const char *message) {
   const int required_ack = is_babcia ? B - 1 : S - 1;
 
   if (csv_mode) {
+    // Libreoffice Ctrl-Shift-L
     char *out_queue = NULL;
     list_to_str(deffered_queue, deferred_queue_size, &out_queue);
 
-    printf("%d;%d;%s;\"%s\";%d;%d;%d;%d;\"%s\";%d;%d\n", rank, clockLamport,
-           role, message, liczba_sloikow, liczba_konfitur, has_jar, has_jam,
-           out_queue, ack_count, required_ack);
+    printf("%d;%d;%s;\"%s\";%d;%d;%d;%d;\"%s\";%d;%d;%d;%d\n", rank,
+           clockLamport, role, message, liczba_sloikow, liczba_konfitur,
+           has_jar, has_jam, out_queue, ack_count, required_ack, in_cs,
+           wants_to_enter_cs);
 
     free(out_queue);
   } else {
     printf("[%d][%d][%s] %s [sloiki: %d, konfitury: %d, has_jar: %d, has_jam: "
-           "%d, ACK: %d/%d]\n",
+           "%d, ACK: %d/%d, inCS: %d, wCS: %d]\n",
            rank, clockLamport, role, message, liczba_sloikow, liczba_konfitur,
-           has_jar, has_jam, ack_count, required_ack);
+           has_jar, has_jam, ack_count, required_ack, in_cs, wants_to_enter_cs);
     // print_queues();
     fflush(stdout);
   }
@@ -208,10 +210,10 @@ const char *tag_status_disp(int tag) {
 
 bool has_priority(int ts2, int p2) {
   debug("enter has_priority");
-  if (clockLamport > ts2) {
+  if (clockLamport < ts2) {
     char msg[32];
     memset(msg, 0, 32 * sizeof(char));
-    sprintf(msg, "gt clk %d > %d", clockLamport, ts2);
+    sprintf(msg, "sm clk %d < %d", clockLamport, ts2);
     debug(msg);
     return true;
   } else if (clockLamport == ts2 && rank < p2) {
@@ -256,9 +258,6 @@ void *receive_thread_func(void *arg) {
         debug(msg);
         memset(msg, 0, 16 * sizeof(char));
         sprintf(msg, "we_cs: %d", wants_to_enter_cs);
-        debug(msg);
-        memset(msg, 0, 16 * sizeof(char));
-        sprintf(msg, "hp: %d", has_priority(pkt.ts, pkt.src));
         debug(msg);
         if (in_cs || (wants_to_enter_cs && has_priority(pkt.ts, pkt.src))) {
           // jeśli tak to zapisujemy to do kolejki
@@ -509,7 +508,7 @@ int main(int argc, char **argv) {
 
   if (csv_mode && rank == 0) {
     printf("rank;clock;proc_type;message;sloiki;konfitury;has_jar;has_jam;"
-           "queue;recv_ack;needed_ack\n");
+           "queue;recv_ack;needed_ack;in_cs;wants_cs\n");
   }
 
   srand(time(NULL) + rank);

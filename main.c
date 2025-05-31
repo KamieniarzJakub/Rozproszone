@@ -57,37 +57,6 @@ int liczba_konfitur = 0;
 packet_t *deffered_queue = NULL;
 size_t deferred_queue_size = 0;
 
-void inc_clock(int received_ts) {
-  clockLamport = (clockLamport > received_ts ? clockLamport : received_ts) + 1;
-}
-
-bool receive_condition() {
-  bool all_ack_received;
-  bool resources_available;
-  if (is_babcia) {
-    all_ack_received = ack_count == B - 1;
-    resources_available = liczba_sloikow > 0;
-  } else { // studentka
-    all_ack_received = ack_count == S - 1;
-    resources_available = liczba_konfitur > 0;
-  }
-
-  return !(all_ack_received && resources_available);
-}
-
-// void print_queues(packet_t queue[], size_t queue_size) {
-//   printf("[Rank %d][Clock %d] [kolejka sloiki]: ", rank, clockLamport);
-//   for (int i = 0; i < queue_sloiki_size; i++) {
-//     printf("%d(ts=%d) ", queue_sloiki[i].src, queue_sloiki[i].ts);
-//   }
-//   printf("| [kolejka konfitury]: ");
-//   for (int i = 0; i < queue_konfitury_size; i++) {
-//     printf("%d(ts=%d) ", queue_konfitury[i].src, queue_konfitury[i].ts);
-//   }
-//   printf("\n");
-//   fflush(stdout);
-// }
-
 void list_to_str(packet_t *queue, int len, char **out_ptr) {
   int current_len = 1; // space for the null terminator
   *out_ptr = (char *)malloc(current_len * sizeof(char));
@@ -146,9 +115,44 @@ void debug(const char *message) {
   }
 }
 
+void inc_clock(int received_ts) {
+  clockLamport = (clockLamport > received_ts ? clockLamport : received_ts) + 1;
+}
+
+bool receive_condition() {
+  debug("enter receive_condition");
+  bool all_ack_received;
+  bool resources_available;
+  if (is_babcia) {
+    all_ack_received = ack_count == B - 1;
+    resources_available = liczba_sloikow > 0;
+  } else { // studentka
+    all_ack_received = ack_count == S - 1;
+    resources_available = liczba_konfitur > 0;
+  }
+
+  debug("exit receive_condition");
+  return !(all_ack_received && resources_available);
+}
+
+// void print_queues(packet_t queue[], size_t queue_size) {
+//   printf("[Rank %d][Clock %d] [kolejka sloiki]: ", rank, clockLamport);
+//   for (int i = 0; i < queue_sloiki_size; i++) {
+//     printf("%d(ts=%d) ", queue_sloiki[i].src, queue_sloiki[i].ts);
+//   }
+//   printf("| [kolejka konfitury]: ");
+//   for (int i = 0; i < queue_konfitury_size; i++) {
+//     printf("%d(ts=%d) ", queue_konfitury[i].src, queue_konfitury[i].ts);
+//   }
+//   printf("\n");
+//   fflush(stdout);
+// }
+
 void send_packet(int dst, int tag) {
+  debug("enter send_packet");
   packet_t pkt = {.ts = clockLamport, .src = rank, .type = tag};
   MPI_Send(&pkt, 1, MPI_PACKET_T, dst, tag, MPI_COMM_WORLD);
+  debug("exit send_packet");
 }
 
 int compare_packet(const void *a, const void *b) {
@@ -160,15 +164,18 @@ int compare_packet(const void *a, const void *b) {
 }
 
 void add_to_queue(packet_t pkt) {
+  debug("enter add_to_queue");
   if (deferred_queue_size >= B + S) {
     fprintf(stderr, "TRYING TO ADD MORE PACKETS TO QUEUE THAN ALLOWED\n");
     return;
   }
   deffered_queue[deferred_queue_size++] = pkt;
   qsort(deffered_queue, deferred_queue_size, sizeof(packet_t), compare_packet);
+  debug("exit add_to_queue");
 }
 
 void remove_from_queue(int src) {
+  debug("enter remove_from_queue");
   for (int i = 0; i < deferred_queue_size; i++) {
     if (deffered_queue[i].src == src) {
       for (int j = i; j < deferred_queue_size - 1; j++) {
@@ -179,6 +186,7 @@ void remove_from_queue(int src) {
     }
   }
   fprintf(stderr, "TRYING TO REMOVE NONEXISTENT ID: %d\n", src);
+  debug("exit remove_from_queue");
 }
 
 const char *tag_status_disp(int tag) {
@@ -199,13 +207,24 @@ const char *tag_status_disp(int tag) {
 }
 
 bool has_priority(int ts2, int p2) {
+  debug("enter has_priority");
   if (clockLamport > ts2) {
+    char msg[32];
+    memset(msg, 0, 32 * sizeof(char));
+    sprintf(msg, "gt clk %d > %d", clockLamport, ts2);
+    debug(msg);
     return true;
   } else if (clockLamport == ts2 && rank < p2) {
+    char msg[32];
+    memset(msg, 0, 32 * sizeof(char));
+    sprintf(msg, "eq clk, sm rk %d > %d", rank, p2);
+    debug(msg);
     return true;
   } else {
+    debug("no prio");
     return false;
   }
+  debug("exit has_priority");
 }
 
 void *receive_thread_func(void *arg) {
@@ -222,6 +241,7 @@ void *receive_thread_func(void *arg) {
     char buf[128];
     snprintf(buf, sizeof(buf), "Otrzymałam %s od [%d]",
              tag_status_disp(status.MPI_TAG), pkt.src);
+    debug(buf);
 
     switch (status.MPI_TAG) {
     case TAG_REQ:
@@ -230,6 +250,16 @@ void *receive_thread_func(void *arg) {
 
         // Najpierw trzeba sprawdzić czy nie jesteśmy obecnie w sekcji
         // krytycznej
+        char msg[16];
+        memset(msg, 0, 16 * sizeof(char));
+        sprintf(msg, "in_cs: %d", in_cs);
+        debug(msg);
+        memset(msg, 0, 16 * sizeof(char));
+        sprintf(msg, "we_cs: %d", wants_to_enter_cs);
+        debug(msg);
+        memset(msg, 0, 16 * sizeof(char));
+        sprintf(msg, "hp: %d", has_priority(pkt.ts, pkt.src));
+        debug(msg);
         if (in_cs || (wants_to_enter_cs && has_priority(pkt.ts, pkt.src))) {
           // jeśli tak to zapisujemy to do kolejki
           add_to_queue(pkt);
@@ -260,7 +290,7 @@ void *receive_thread_func(void *arg) {
       liczba_konfitur++;
       break;
     }
-    debug(buf);
+    debug("przetworzyłam");
 
     if (!receive_condition()) {
       pthread_cond_signal(&cond);
@@ -273,6 +303,7 @@ void *receive_thread_func(void *arg) {
 }
 
 void wait_until_can_proceed() {
+  debug("enter wait_until_can_proceed");
   pthread_mutex_lock(&mutex);
   while (receive_condition()) {
     pthread_cond_wait(&cond, &mutex);
@@ -280,9 +311,11 @@ void wait_until_can_proceed() {
   in_cs = true;
   wants_to_enter_cs = false;
   pthread_mutex_unlock(&mutex);
+  debug("exit wait_until_can_proceed");
 }
 
 void request_resource() {
+  debug("enter request_resource");
   pthread_mutex_lock(&mutex);
   wants_to_enter_cs = true;
   clockLamport++;
@@ -305,9 +338,11 @@ void request_resource() {
 
   debug(is_babcia ? "Wysyłam prośbę o słoik" : "Wysyłam prośbę o konfiturę");
   pthread_mutex_unlock(&mutex);
+  debug("exit request_resource");
 }
 
 void enter_critical_section() {
+  debug("enter enter_critical_section");
   sleep(rand() % 2 + 1);
 
   pthread_mutex_lock(&mutex);
@@ -341,15 +376,18 @@ void enter_critical_section() {
   debug("Wysyłam REL do wszystkich, wychodzę z krytycznej");
   in_cs = false;
   pthread_mutex_unlock(&mutex);
+  debug("exit enter_critical_section");
 }
 
 void run_process() {
   while (true) {
     if (is_babcia) {
       if (!has_jar && !has_jam) {
+        debug("enter no jar no jam");
         request_resource();
         wait_until_can_proceed();
         enter_critical_section();
+        debug("exit no jar no jam");
       } else if (has_jar && !has_jam) {
         debug("Rozpoczynam produkcję konfitury");
         sleep(rand() % 6 + 1);
@@ -364,18 +402,22 @@ void run_process() {
         debug("Wysłałam FULL, mam konfiturę");
         pthread_mutex_unlock(&mutex);
       } else if (has_jam) {
+        debug("enter jam");
         sleep(rand() % 13 + 1);
         pthread_mutex_lock(&mutex);
         has_jam = false;
         pthread_mutex_unlock(&mutex);
+        debug("exit jam");
       }
     }
 
     if (is_studentka) {
       if (!has_jam && !has_jar) {
+        debug("enter no jar no jam");
         request_resource();
         wait_until_can_proceed();
         enter_critical_section();
+        debug("exit no jar no jam");
       } else if (has_jam && !has_jar) {
         debug("Zjadam konfiturę");
         sleep(rand() % 8 + 1);
@@ -390,10 +432,12 @@ void run_process() {
         debug("Wysłałam EMPTY, oddałam słoik");
         pthread_mutex_unlock(&mutex);
       } else if (has_jar) {
+        debug("enter jar");
         sleep(rand() % 10 + 1);
         pthread_mutex_lock(&mutex);
         has_jar = false;
         pthread_mutex_unlock(&mutex);
+        debug("exit jar");
       }
     }
 
@@ -464,8 +508,8 @@ int main(int argc, char **argv) {
     csv_mode = true;
 
   if (csv_mode && rank == 0) {
-    printf("rank;clock;proc_type;message;sloiki;konfitury;has_jar;has_jam;jar_"
-           "queue;jam_queue;recv_ack;needed_ack\n");
+    printf("rank;clock;proc_type;message;sloiki;konfitury;has_jar;has_jam;"
+           "queue;recv_ack;needed_ack\n");
   }
 
   srand(time(NULL) + rank);
@@ -479,7 +523,7 @@ int main(int argc, char **argv) {
     waiting_ack = malloc((B + S) * sizeof(bool));
     deffered_queue = malloc((B + S) * sizeof(bool));
   }
-  if (waiting_ack == 0) {
+  if (waiting_ack == 0 || deffered_queue == 0) {
     fprintf(stderr, "MALLOC FAILED");
     exit(1);
   }

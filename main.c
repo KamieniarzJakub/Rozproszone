@@ -158,6 +158,10 @@ int compare_packet(const void *a, const void *b) {
 }
 
 void add_to_queue(packet_t pkt) {
+  if (deferred_queue_size >= B + S) {
+    fprintf(stderr, "TRYING TO ADD MORE PACKETS TO QUEUE THAN ALLOWED");
+    return;
+  }
   deffered_queue[deferred_queue_size++] = pkt;
   qsort(deffered_queue, deferred_queue_size, sizeof(packet_t), compare_packet);
 }
@@ -168,10 +172,11 @@ void remove_from_queue(int src) {
       for (int j = i; j < deferred_queue_size - 1; j++) {
         deffered_queue[j] = deffered_queue[j + 1];
       }
-      size--;
+      deferred_queue_size--;
       break;
     }
   }
+  fprintf(stderr, "TRYING TO REMOVE NONEXISTENT ID: %d", src);
 }
 
 const char *tag_status_disp(int tag) {
@@ -267,7 +272,7 @@ void wait_until_can_proceed() {
 void request_resource() {
   pthread_mutex_lock(&mutex);
   clockLamport++;
-  memset(waiting_ack, 0, (is_babcia ? B : S) * sizeof(bool));
+  memset(waiting_ack, 0, (B + S) * sizeof(bool));
   ack_count = 0;
   packet_t pkt = {.ts = clockLamport, .src = rank, .type = TAG_REQ};
   // add_to_queue(pkt);
@@ -458,11 +463,11 @@ int main(int argc, char **argv) {
   is_babcia = (rank < B);
   is_studentka = (rank >= B && rank < B + S);
   if (is_babcia) {
-    waiting_ack = malloc(B * sizeof(bool));
-    deffered_queue = malloc(B * sizeof(bool));
+    waiting_ack = malloc((B + S) * sizeof(bool));
+    deffered_queue = malloc((B + S) * sizeof(bool));
   } else {
-    waiting_ack = malloc(S * sizeof(bool));
-    deffered_queue = malloc(S * sizeof(bool));
+    waiting_ack = malloc((B + S) * sizeof(bool));
+    deffered_queue = malloc((B + S) * sizeof(bool));
   }
   if (waiting_ack == 0) {
     fprintf(stderr, "MALLOC FAILED");

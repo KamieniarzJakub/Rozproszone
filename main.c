@@ -13,6 +13,7 @@ pthread_t receiver_thread;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 bool in_cs = false;
+bool wants_to_enter_cs = false;
 
 // Rodzaje wiadomości
 enum MESSAGES {
@@ -197,6 +198,16 @@ const char *tag_status_disp(int tag) {
   }
 }
 
+bool has_priority(int ts2, int p2) {
+  if (clockLamport > ts2) {
+    return true;
+  } else if (clockLamport == ts2 && rank > p2) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 void *receive_thread_func(void *arg) {
   packet_t pkt;
   MPI_Status status;
@@ -219,7 +230,7 @@ void *receive_thread_func(void *arg) {
 
         // Najpierw trzeba sprawdzić czy nie jesteśmy obecnie w sekcji
         // krytycznej
-        if (in_cs) {
+        if (in_cs || (wants_to_enter_cs && has_priority(pkt.ts, pkt.src))) {
           // jeśli tak to zapisujemy to do kolejki
           add_to_queue(pkt);
         } else {
@@ -267,11 +278,13 @@ void wait_until_can_proceed() {
     pthread_cond_wait(&cond, &mutex);
   }
   in_cs = true;
+  wants_to_enter_cs = false;
   pthread_mutex_unlock(&mutex);
 }
 
 void request_resource() {
   pthread_mutex_lock(&mutex);
+  wants_to_enter_cs = true;
   clockLamport++;
   memset(waiting_ack, 0, (B + S) * sizeof(bool));
   ack_count = 0;

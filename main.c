@@ -19,7 +19,7 @@ enum MESSAGES {
   TAG_REQ = 1,
   // Potwierdzenie i zezwolenie na zabranie zasobu przez inny proces
   TAG_ACK = 2,
-  TAG_REL = 3,   // Release
+  TAG_REL = 3,   // Opuszczenie sekcji krytycznej, useless?
   TAG_EMPTY = 5, // Nowy pusty słoik
   TAG_FULL = 6   // Nowa konfitura
 };
@@ -84,7 +84,7 @@ bool receive_condition() {
     resources_available = liczba_konfitur > 0;
   }
 
-  return !(all_ack_received && is_first_in_queue() && resources_available);
+  return !(all_ack_received && resources_available);
 }
 
 void print_queue() {
@@ -244,6 +244,9 @@ void *receive_thread_func(void *arg) {
       case TAG_REQ:
         if ((is_babcia && pkt.src < B) || (is_studentka && pkt.src >= B && pkt.src < B + S)) {
           add_to_queue(pkt);
+          // Najpierw trzeba sprawdzić czy nie jesteśmy obecnie w sekcji krytycznej, jeśli tak to zapisujemy to do kolejki
+          // W przeciwnym razie wysyłamy odpowiedź
+
           send_packet(pkt.src, TAG_ACK);
           debug(buf);
         }
@@ -300,7 +303,7 @@ void request_resource() {
   memset(waiting_ack, 0, sizeof(waiting_ack));
   ack_count = 0;
   packet_t pkt = {.ts = clockLamport, .src = rank, .type = TAG_REQ};
-  add_to_queue(pkt);
+  // add_to_queue(pkt);
 
   if (is_babcia) {
     for (int i = 0; i < rank; i++) send_packet(i, TAG_REQ);
@@ -333,8 +336,20 @@ void enter_critical_section() {
   }
 
   clockLamport++;
-  broadcast_packet(TAG_REL);
-  remove_from_queue(rank);
+
+  if (is_babcia) {
+    // Babcia wysyła opóźnione potwierdzenia wejścia do sekcji krytycznej
+    // TODO
+  } else {
+    // Studentka wysyła opóźnione potwierdzenia wejścia do sekcji krytycznej
+    // TODO
+  }
+
+
+  // TODO: Instead of broadcast to all the process should ONLY send messages to:
+  //  - TAG_ACK message to all the deferred requests.
+
+  // remove_from_queue(rank);
   debug("Wysyłam REL do wszystkich, wychodzę z krytycznej");
   pthread_mutex_unlock(&mutex);
 }
@@ -353,7 +368,10 @@ void run_process() {
         has_jar = false;
         has_jam = true;
         liczba_konfitur++;
-        broadcast_packet(TAG_FULL);
+        // Babcia wysyła do każdej studentki, że pojawiła się nowa konfitura
+        for (int i = B; i < B + S; i++) {
+          send_packet(i, TAG_FULL);
+        }
         debug("Wysłałam FULL, mam konfiturę");
         pthread_mutex_unlock(&mutex);
       } else if (has_jam) {
@@ -376,7 +394,10 @@ void run_process() {
         has_jam = false;
         has_jar = true;
         liczba_sloikow++;
-        broadcast_packet(TAG_EMPTY);
+        // Studentka wysyła do każdej babci, że zwolnił się nowy słoik
+        for (int i = 0; i < B; i++) {
+          send_packet(i, TAG_EMPTY);
+        }
         debug("Wysłałam EMPTY, oddałam słoik");
         pthread_mutex_unlock(&mutex);
       } else if (has_jar) {

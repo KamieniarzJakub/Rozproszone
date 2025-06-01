@@ -170,8 +170,8 @@ void send_batch(int *dests, int tag, int num) {
   free(dests);
 }
 
-bool receive_condition() {
-  debug("Sprawdzam czy mogę zabrać");
+bool should_wait() {
+  debug("Sprawdzam czy muszę wciąż czekać");
   bool all_ack_received;
   bool resources_available;
   if (is_babcia) {
@@ -320,9 +320,9 @@ void *receive_thread_func(void *arg) {
 }
 
 void wait_until_can_proceed() {
-  debug("Czekam, aż będę mogła zabrać");
   pthread_mutex_lock(&mutex);
-  if (receive_condition()) {
+  while (should_wait()) {
+    debug("Czekam, aż będę mogła zabrać");
     pthread_cond_wait(&cond, &mutex);
   }
   in_cs = true;
@@ -380,10 +380,19 @@ void enter_critical_section() {
 
   clockLamport++;
 
-  // wysyła opóźnione potwierdzenia wejścia do sekcji krytycznej
   int *send_to_list;
   int j = 0;
+  send_to_list = malloc(sizeof(int) * (size - 1));
+  for (int i = 0; i < size; i++) {
+    if (i != rank)
+      send_to_list[j++] = i;
+  }
+  send_batch(send_to_list, TAG_REL, j);
+  debug("Wysłałam REL do wszystkich");
+
+  // wysyła opóźnione potwierdzenia wejścia do sekcji krytycznej
   send_to_list = malloc(sizeof(int) * deferred_queue_size);
+  j = 0;
   for (int i = 0; i < deferred_queue_size; i++) {
     int send_to = deffered_queue[i].src;
     if (send_to == rank)
@@ -395,18 +404,9 @@ void enter_critical_section() {
     send_to_list[j++] = send_to;
   }
   send_batch(send_to_list, TAG_ACK, j);
-  debug("Wysyłam zaległe ACK");
+  debug("Wysłałam zaległe ACK");
+
   deferred_queue_size = 0;
-
-  j = 0;
-  send_to_list = malloc(sizeof(int) * (size - 1));
-  for (int i = 0; i < size; i++) {
-    if (i != rank)
-      send_to_list[j++] = i;
-  }
-  send_batch(send_to_list, TAG_REL, j);
-
-  debug("Wysłałam REL do wszystkich");
   in_cs = false;
   pthread_mutex_unlock(&mutex);
   debug("Wychodzę z sekcji krytycznej");
@@ -415,13 +415,13 @@ void enter_critical_section() {
 void run_process() {
   while (true) {
     if (is_babcia) {
-      if (!has_jar) {
+      if (!has_jar && !has_jam) {
         debug("Chcę zabrać słoik");
         request_resource();
         wait_until_can_proceed();
         enter_critical_section();
         debug("Mam słoik");
-      } else {
+      } else if (has_jar) {
         debug("Rozpoczynam produkcję konfitury");
         sleep(rand() % 6 + 1);
         pthread_mutex_lock(&mutex);
@@ -430,6 +430,7 @@ void run_process() {
         liczba_konfitur++;
         debug("Mam konfiturę");
         pthread_mutex_unlock(&mutex);
+      } else {
         sleep(rand() % 13 + 1);
         pthread_mutex_lock(&mutex);
         // Babcia wysyła do każdej studentki, że pojawiła się nowa konfitura
@@ -439,6 +440,11 @@ void run_process() {
         for (int i = B; i < B + S; i++) {
           send_to_list[j++] = i;
         }
+        // [Opcjonalnie] wysyłamy do każdej babci aktualizację stanu
+        for (int i = 0; i < B; i++) {
+          if (i != rank)
+            send_to_list[j++] = i;
+        }
         send_batch(send_to_list, TAG_FULL, j);
         has_jam = false;
         pthread_mutex_unlock(&mutex);
@@ -447,11 +453,12 @@ void run_process() {
     }
 
     if (is_studentka) {
-      if (!has_jam) {
+      if (!has_jam && !has_jar) {
         debug("Chcę zabrać konfiturę");
         request_resource();
         wait_until_can_proceed();
         enter_critical_section();
+      } else if (has_jam) {
         debug("Mam konfiturę");
         sleep(rand() % 8 + 1);
         pthread_mutex_lock(&mutex);
@@ -470,6 +477,11 @@ void run_process() {
         int j = 0;
         for (int i = 0; i < B; i++) {
           send_to_list[j++] = i;
+        }
+        // [Opcjonalnie] wysyłamy do każdej studentki aktualizację stanu
+        for (int i = B; i < B + S; i++) {
+          if (i != rank)
+            send_to_list[j++] = i;
         }
         send_batch(send_to_list, TAG_EMPTY, j);
         has_jar = false;
@@ -495,8 +507,11 @@ void init_packet_type() {
 void finalize(int signo) {
   MPI_Type_free(&MPI_PACKET_T);
   MPI_Finalize();
+  pthread_join(receiver_thread, NULL);
   free(waiting_ack);
   free(deffered_queue);
+  pthread_mutex_destroy(&mutex);
+  pthread_cond_destroy(&cond);
 }
 
 int main(int argc, char **argv) {
@@ -573,5 +588,6 @@ int main(int argc, char **argv) {
   // Główny proces przetwarzania
   run_process();
 
+  finalize(0);
   return 0;
 }

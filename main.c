@@ -142,6 +142,34 @@ void inc_clock(int received_ts) {
   clockLamport = (clockLamport > received_ts ? clockLamport : received_ts) + 1;
 }
 
+void send_batch(int *dests, int tag, int num) {
+  MPI_Status *statuses = malloc(sizeof(MPI_Status) * num);
+  if (statuses == NULL) {
+    debug("SEND BATCH STATUSES MALLOC ERROR");
+    exit(1);
+  }
+  memset(statuses, 0, num);
+
+  MPI_Request *requests = malloc(sizeof(MPI_Request) * num);
+  if (requests == NULL) {
+    debug("SEND BATCH REQUESTS MALLOC ERROR");
+    exit(1);
+  }
+  memset(requests, 0, num);
+
+  for (int i = 0; i < num; i++) {
+    packet_t pkt = {.ts = clockLamport, .src = rank, .type = tag};
+    MPI_Isend(&pkt, 1, MPI_PACKET_T, dests[i], tag, MPI_COMM_WORLD,
+              requests + i);
+    debug("Wysyłam %s do %d", tag_status_disp(tag), dests[i]);
+  }
+
+  MPI_Waitall(num, requests, statuses);
+  free(statuses);
+  free(requests);
+  free(dests);
+}
+
 bool receive_condition() {
   debug("Sprawdzam czy mogę zabrać");
   bool all_ack_received;
@@ -312,17 +340,22 @@ void request_resource() {
   packet_t pkt = {.ts = clockLamport, .src = rank, .type = TAG_REQ};
   add_to_queue(pkt);
 
+  int *send_to_list;
+  int j = 0;
   if (is_babcia) {
+    send_to_list = malloc(sizeof(int) * (B - 1));
     for (int i = 0; i < rank; i++)
-      send_packet(i, TAG_REQ);
+      send_to_list[j++] = i;
     for (int i = rank + 1; i < B; i++)
-      send_packet(i, TAG_REQ);
+      send_to_list[j++] = i;
   } else if (is_studentka) {
+    send_to_list = malloc(sizeof(int) * (S - 1));
     for (int i = B; i < rank; i++)
-      send_packet(i, TAG_REQ);
+      send_to_list[j++] = i;
     for (int i = rank + 1; i < B + S; i++)
-      send_packet(i, TAG_REQ);
+      send_to_list[j++] = i;
   }
+  send_batch(send_to_list, TAG_REQ, j);
 
   debug(is_babcia ? "Wysyłam prośbę o słoik" : "Wysyłam prośbę o konfiturę");
   pthread_mutex_unlock(&mutex);
@@ -348,6 +381,9 @@ void enter_critical_section() {
   clockLamport++;
 
   // wysyła opóźnione potwierdzenia wejścia do sekcji krytycznej
+  int *send_to_list;
+  int j = 0;
+  send_to_list = malloc(sizeof(int) * deferred_queue_size);
   for (int i = 0; i < deferred_queue_size; i++) {
     int send_to = deffered_queue[i].src;
     if (send_to == rank)
@@ -355,15 +391,20 @@ void enter_critical_section() {
     if ((is_babcia && send_to >= B) || (is_studentka && send_to < B))
       continue;
 
-    send_packet(send_to, TAG_ACK);
+    // send_packet(send_to, TAG_ACK);
+    send_to_list[j++] = send_to;
   }
+  send_batch(send_to_list, TAG_ACK, j);
   debug("Wysyłam zaległe ACK");
   deferred_queue_size = 0;
 
+  j = 0;
+  send_to_list = malloc(sizeof(int) * (size - 1));
   for (int i = 0; i < size; i++) {
     if (i != rank)
-      send_packet(i, TAG_REL);
+      send_to_list[j++] = i;
   }
+  send_batch(send_to_list, TAG_REL, j);
 
   debug("Wysłałam REL do wszystkich");
   in_cs = false;
@@ -393,9 +434,12 @@ void run_process() {
         pthread_mutex_lock(&mutex);
         // Babcia wysyła do każdej studentki, że pojawiła się nowa konfitura
         // dopiero jak chce się jej pozbyć (konfitury)
+        int *send_to_list = malloc(sizeof(int) * S);
+        int j = 0;
         for (int i = B; i < B + S; i++) {
-          send_packet(i, TAG_FULL);
+          send_to_list[j++] = i;
         }
+        send_batch(send_to_list, TAG_FULL, j);
         has_jam = false;
         pthread_mutex_unlock(&mutex);
         debug("Oddałam konfiturę");
@@ -422,9 +466,12 @@ void run_process() {
         pthread_mutex_lock(&mutex);
         // Studentka wysyła do każdej babci, że zwolnił się nowy słoik
         // dopiero jak chce się go pozbyć
+        int *send_to_list = malloc(sizeof(int) * B);
+        int j = 0;
         for (int i = 0; i < B; i++) {
-          send_packet(i, TAG_EMPTY);
+          send_to_list[j++] = i;
         }
+        send_batch(send_to_list, TAG_EMPTY, j);
         has_jar = false;
         pthread_mutex_unlock(&mutex);
         debug("Oddałam słoik");

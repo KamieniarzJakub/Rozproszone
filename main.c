@@ -13,7 +13,6 @@ pthread_t receiver_thread;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 bool in_cs = false;
-bool wants_to_enter_cs = false;
 
 // Rodzaje wiadomości
 enum MESSAGES {
@@ -25,6 +24,22 @@ enum MESSAGES {
   TAG_EMPTY = 5, // Nowy pusty słoik
   TAG_FULL = 6   // Nowa konfitura
 };
+const char *tag_status_disp(int tag) {
+  switch (tag) {
+  case TAG_REQ:
+    return "REQ";
+  case TAG_ACK:
+    return "ACK";
+  case TAG_REL:
+    return "REL";
+  case TAG_EMPTY:
+    return "EMPTY";
+  case TAG_FULL:
+    return "FULL";
+  default:
+    return "INNE";
+  }
+}
 
 typedef struct {
   int ts;   // zegar Lamporta
@@ -101,17 +116,16 @@ void debug(const char *message) {
     char *out_queue = NULL;
     list_to_str(deffered_queue, deferred_queue_size, &out_queue);
 
-    printf("%d;%d;%s;\"%s\";%d;%d;%d;%d;\"%s\";%d;%d;%d;%d\n", rank,
-           clockLamport, role, message, liczba_sloikow, liczba_konfitur,
-           has_jar, has_jam, out_queue, ack_count, required_ack, in_cs,
-           wants_to_enter_cs);
+    printf("%d;%d;%s;\"%s\";%d;%d;%d;%d;\"%s\";%d;%d;%d\n", rank, clockLamport,
+           role, message, liczba_sloikow, liczba_konfitur, has_jar, has_jam,
+           out_queue, ack_count, required_ack, in_cs);
 
     free(out_queue);
   } else {
     printf("[%d][%d][%s] %s [sloiki: %d, konfitury: %d, has_jar: %d, has_jam: "
-           "%d, ACK: %d/%d, inCS: %d, wCS: %d]\n",
+           "%d, ACK: %d/%d, inCS: %d]\n",
            rank, clockLamport, role, message, liczba_sloikow, liczba_konfitur,
-           has_jar, has_jam, ack_count, required_ack, in_cs, wants_to_enter_cs);
+           has_jar, has_jam, ack_count, required_ack, in_cs);
     // print_queues();
     fflush(stdout);
   }
@@ -151,10 +165,11 @@ bool receive_condition() {
 // }
 
 void send_packet(int dst, int tag) {
-  debug("enter send_packet");
   packet_t pkt = {.ts = clockLamport, .src = rank, .type = tag};
   MPI_Send(&pkt, 1, MPI_PACKET_T, dst, tag, MPI_COMM_WORLD);
-  debug("exit send_packet");
+  char msg[32];
+  memset(msg, 0, 32 * sizeof(char));
+  sprintf(msg, "send %s to %d", tag_status_disp(tag), dst);
 }
 
 int compare_packet(const void *a, const void *b) {
@@ -191,42 +206,36 @@ void remove_from_queue(int src) {
   debug("exit remove_from_queue");
 }
 
-const char *tag_status_disp(int tag) {
-  switch (tag) {
-  case TAG_REQ:
-    return "REQ";
-  case TAG_ACK:
-    return "ACK";
-  case TAG_REL:
-    return "REL";
-  case TAG_EMPTY:
-    return "EMPTY";
-  case TAG_FULL:
-    return "FULL";
-  default:
-    return "INNE";
+int find_in_queue(int src) {
+  debug("enter find_in_queue");
+  for (int i = 0; i < deferred_queue_size; i++) {
+    if (deffered_queue[i].src == src) {
+      return i;
+    }
   }
+  fprintf(stderr, "TRYING TO REMOVE NONEXISTENT ID: %d\n", src);
+  return -1;
 }
-
-bool has_priority(int ts2, int p2) {
+bool has_priority(int p2) {
   debug("enter has_priority");
-  if (clockLamport < ts2) {
-    char msg[32];
-    memset(msg, 0, 32 * sizeof(char));
-    sprintf(msg, "sm clk %d < %d", clockLamport, ts2);
-    debug(msg);
-    return true;
-  } else if (clockLamport == ts2 && rank < p2) {
-    char msg[32];
-    memset(msg, 0, 32 * sizeof(char));
-    sprintf(msg, "eq clk, sm rk %d > %d", rank, p2);
-    debug(msg);
-    return true;
-  } else {
-    debug("no prio");
+  int my_pos_in_q = find_in_queue(rank);
+  int their_pos_in_q = find_in_queue(p2);
+  char msg[32];
+  memset(msg, 0, 32 * sizeof(char));
+  sprintf(msg, "mypos %d", my_pos_in_q);
+  debug(msg);
+  memset(msg, 0, 32 * sizeof(char));
+  sprintf(msg, "theirPos %d", their_pos_in_q);
+  debug(msg);
+  if (their_pos_in_q < 0) {
+    fprintf(stderr, "THEIR POS IN Q = -1");
     return false;
   }
-  debug("exit has_priority");
+  if (my_pos_in_q < 0) {
+    return false;
+  }
+
+  return my_pos_in_q < their_pos_in_q;
 }
 
 void *receive_thread_func(void *arg) {
@@ -250,21 +259,19 @@ void *receive_thread_func(void *arg) {
       if ((is_babcia && pkt.src < B) ||
           (is_studentka && pkt.src >= B && pkt.src < B + S)) {
 
+        add_to_queue(pkt);
         // Najpierw trzeba sprawdzić czy nie jesteśmy obecnie w sekcji
         // krytycznej
         char msg[16];
         memset(msg, 0, 16 * sizeof(char));
         sprintf(msg, "in_cs: %d", in_cs);
         debug(msg);
-        memset(msg, 0, 16 * sizeof(char));
-        sprintf(msg, "we_cs: %d", wants_to_enter_cs);
-        debug(msg);
-        if (in_cs || (wants_to_enter_cs && has_priority(pkt.ts, pkt.src))) {
+        if (in_cs || (has_priority(pkt.src))) {
           // jeśli tak to zapisujemy to do kolejki
-          add_to_queue(pkt);
         } else {
           // W przeciwnym razie wysyłamy odpowiedź
           send_packet(pkt.src, TAG_ACK);
+          remove_from_queue(pkt.src);
         }
       }
       break;
@@ -308,7 +315,7 @@ void wait_until_can_proceed() {
     pthread_cond_wait(&cond, &mutex);
   }
   in_cs = true;
-  wants_to_enter_cs = false;
+  remove_from_queue(rank);
   pthread_mutex_unlock(&mutex);
   debug("exit wait_until_can_proceed");
 }
@@ -316,12 +323,11 @@ void wait_until_can_proceed() {
 void request_resource() {
   debug("enter request_resource");
   pthread_mutex_lock(&mutex);
-  wants_to_enter_cs = true;
   clockLamport++;
   memset(waiting_ack, 0, (B + S) * sizeof(bool));
   ack_count = 0;
   packet_t pkt = {.ts = clockLamport, .src = rank, .type = TAG_REQ};
-  // add_to_queue(pkt);
+  add_to_queue(pkt);
 
   if (is_babcia) {
     for (int i = 0; i < rank; i++)
@@ -508,7 +514,7 @@ int main(int argc, char **argv) {
 
   if (csv_mode && rank == 0) {
     printf("rank;clock;proc_type;message;sloiki;konfitury;has_jar;has_jam;"
-           "queue;recv_ack;needed_ack;in_cs;wants_cs\n");
+           "queue;recv_ack;needed_ack;in_cs\n");
   }
 
   srand(time(NULL) + rank);

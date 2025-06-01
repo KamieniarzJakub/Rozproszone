@@ -2,6 +2,7 @@
 #include <mpi.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -84,9 +85,9 @@ void list_to_str(packet_t *queue, int len, char **out_ptr) {
   char *out = *out_ptr;
   int index = 0;
 
+  const char *pkt_fmt = "{src=%d ts=%d},";
   for (int i = 0; i < len; i++) {
-    int needed =
-        snprintf(NULL, 0, "%d->%d,", (queue + i)->src, (queue + i)->ts);
+    int needed = snprintf(NULL, 0, pkt_fmt, (queue + i)->src, (queue + i)->ts);
     if (index + needed >= current_len) {
       current_len += needed + 1; // +1 for next comma and null terminator
       char *temp = (char *)realloc(out, current_len * sizeof(char));
@@ -98,7 +99,7 @@ void list_to_str(packet_t *queue, int len, char **out_ptr) {
       out = temp;
       *out_ptr = out;
     }
-    index += sprintf(out + index, "%d->%d,", (queue + i)->src, (queue + i)->ts);
+    index += sprintf(out + index, pkt_fmt, (queue + i)->src, (queue + i)->ts);
   }
 
   // Remove the trailing comma if the list is not empty
@@ -106,29 +107,33 @@ void list_to_str(packet_t *queue, int len, char **out_ptr) {
     out[index - 1] = '\0';
   }
 }
-void debug(const char *message) {
+
+void debug(const char *message, ...) {
+  va_list vl;
+  char *msg;
+  if (0 > asprintf(&msg, message, vl))
+    return; // ALLOC ERROR
+
   const char *role =
       is_babcia ? "Babcia" : (is_studentka ? "Studentka" : "Proces");
   const int required_ack = is_babcia ? B - 1 : S - 1;
 
+  char *out_queue = NULL;
+  list_to_str(deffered_queue, deferred_queue_size, &out_queue);
   if (csv_mode) {
-    // Libreoffice Ctrl-Shift-L
-    char *out_queue = NULL;
-    list_to_str(deffered_queue, deferred_queue_size, &out_queue);
+    printf("%d;%d;\"%s\";\"%s\";%d;%d;%d;%d;\"%s\";%d;%d;%d\n", rank,
+           clockLamport, role, msg, liczba_sloikow, liczba_konfitur, has_jar,
+           has_jam, out_queue, ack_count, required_ack, in_cs);
 
-    printf("%d;%d;%s;\"%s\";%d;%d;%d;%d;\"%s\";%d;%d;%d\n", rank, clockLamport,
-           role, message, liczba_sloikow, liczba_konfitur, has_jar, has_jam,
-           out_queue, ack_count, required_ack, in_cs);
-
-    free(out_queue);
   } else {
     printf("[%d][%d][%s] %s [sloiki: %d, konfitury: %d, has_jar: %d, has_jam: "
-           "%d, ACK: %d/%d, inCS: %d]\n",
-           rank, clockLamport, role, message, liczba_sloikow, liczba_konfitur,
-           has_jar, has_jam, ack_count, required_ack, in_cs);
-    // print_queues();
+           "%d, ACK: %d/%d, inCS: %d, q: %s]\n",
+           rank, clockLamport, role, msg, liczba_sloikow, liczba_konfitur,
+           has_jar, has_jam, ack_count, required_ack, in_cs, out_queue);
     fflush(stdout);
   }
+  free(out_queue);
+  free(msg);
 }
 
 void inc_clock(int received_ts) {
@@ -151,25 +156,14 @@ bool receive_condition() {
   return !(all_ack_received && resources_available);
 }
 
-// void print_queues(packet_t queue[], size_t queue_size) {
-//   printf("[Rank %d][Clock %d] [kolejka sloiki]: ", rank, clockLamport);
-//   for (int i = 0; i < queue_sloiki_size; i++) {
-//     printf("%d(ts=%d) ", queue_sloiki[i].src, queue_sloiki[i].ts);
-//   }
-//   printf("| [kolejka konfitury]: ");
-//   for (int i = 0; i < queue_konfitury_size; i++) {
-//     printf("%d(ts=%d) ", queue_konfitury[i].src, queue_konfitury[i].ts);
-//   }
-//   printf("\n");
-//   fflush(stdout);
-// }
-
 void send_packet(int dst, int tag) {
   packet_t pkt = {.ts = clockLamport, .src = rank, .type = tag};
   MPI_Send(&pkt, 1, MPI_PACKET_T, dst, tag, MPI_COMM_WORLD);
-  char msg[32];
-  memset(msg, 0, 32 * sizeof(char));
-  sprintf(msg, "send %s to %d", tag_status_disp(tag), dst);
+  char *msg;
+  if (0 < asprintf(&msg, "sent %s to %d", tag_status_disp(tag), dst)) {
+    debug(msg);
+  }
+  free(msg);
 }
 
 int compare_packet(const void *a, const void *b) {
@@ -181,54 +175,81 @@ int compare_packet(const void *a, const void *b) {
 }
 
 void add_to_queue(packet_t pkt) {
-  debug("enter add_to_queue");
+  char *msg;
+  if (0 < asprintf(&msg, "add_to_queue {src=%d, ts=%d}", pkt.src, pkt.ts)) {
+    debug(msg);
+  }
+  free(msg);
   if (deferred_queue_size >= B + S) {
-    fprintf(stderr, "TRYING TO ADD MORE PACKETS TO QUEUE THAN ALLOWED\n");
+    debug("TRYING TO ADD MORE PACKETS TO QUEUE THAN ALLOWED");
     return;
   }
   deffered_queue[deferred_queue_size++] = pkt;
   qsort(deffered_queue, deferred_queue_size, sizeof(packet_t), compare_packet);
-  debug("exit add_to_queue");
 }
 
 void remove_from_queue(int src) {
-  debug("enter remove_from_queue");
+  char *msg;
+  if (0 < asprintf(&msg, "remove_from_queue %d", src)) {
+    debug(msg);
+  }
+  free(msg);
   for (int i = 0; i < deferred_queue_size; i++) {
     if (deffered_queue[i].src == src) {
+      if (0 < asprintf(&msg, "remove_from_queue found {src=%d, ts=%d}",
+                       deffered_queue[i].src, deffered_queue[i].ts)) {
+        debug(msg);
+      }
+      free(msg);
       for (int j = i; j < deferred_queue_size - 1; j++) {
         deffered_queue[j] = deffered_queue[j + 1];
       }
       deferred_queue_size--;
-      break;
+      return;
     }
   }
-  fprintf(stderr, "TRYING TO REMOVE NONEXISTENT ID: %d\n", src);
-  debug("exit remove_from_queue");
+  if (0 < asprintf(&msg, "TRYING TO REMOVE NONEXISTENT ID: %d", src)) {
+    debug(msg);
+  }
+  free(msg);
 }
 
 int find_in_queue(int src) {
-  debug("enter find_in_queue");
+  char *msg;
+  if (0 < asprintf(&msg, "find_in_queue src=%d", src)) {
+    debug(msg);
+  }
+  free(msg);
   for (int i = 0; i < deferred_queue_size; i++) {
     if (deffered_queue[i].src == src) {
+      if (0 < asprintf(&msg, "find_in_queue found: i=%d -> {src=%d, ts=%d}", i,
+                       deffered_queue[i].src, deffered_queue[i].ts)) {
+        debug(msg);
+      }
+      free(msg);
       return i;
     }
   }
-  fprintf(stderr, "TRYING TO REMOVE NONEXISTENT ID: %d\n", src);
+  if (0 < asprintf(&msg, "TRYING TO REMOVE NONEXISTENT ID: %d\n", src)) {
+    debug(msg);
+  }
+  free(msg);
   return -1;
 }
 bool has_priority(int p2) {
-  debug("enter has_priority");
   int my_pos_in_q = find_in_queue(rank);
   int their_pos_in_q = find_in_queue(p2);
-  char msg[32];
-  memset(msg, 0, 32 * sizeof(char));
-  sprintf(msg, "mypos %d", my_pos_in_q);
-  debug(msg);
-  memset(msg, 0, 32 * sizeof(char));
-  sprintf(msg, "theirPos %d", their_pos_in_q);
-  debug(msg);
+  char *msg;
+  if (0 < asprintf(&msg, "mypos %d, theirpos %d (src=%d)", my_pos_in_q,
+                   their_pos_in_q, p2)) {
+    debug(msg);
+  }
+  free(msg);
   if (their_pos_in_q < 0) {
-    fprintf(stderr, "THEIR POS IN Q = -1");
+    if (0 < asprintf(&msg, "THEIR (src=%d) POS IN Q = -1", p2)) {
+      debug(msg);
+    }
+    free(msg);
     return false;
   }
   if (my_pos_in_q < 0) {
@@ -249,10 +270,8 @@ void *receive_thread_func(void *arg) {
     pthread_mutex_lock(&mutex);
     inc_clock(pkt.ts);
 
-    char buf[128];
-    snprintf(buf, sizeof(buf), "Otrzymałam %s od [%d]",
-             tag_status_disp(status.MPI_TAG), pkt.src);
-    debug(buf);
+    const char *tag_disp = tag_status_disp(status.MPI_TAG);
+    debug("Otrzymałam %s od [%d]", tag_disp, pkt.src);
 
     switch (status.MPI_TAG) {
     case TAG_REQ:
@@ -262,10 +281,7 @@ void *receive_thread_func(void *arg) {
         add_to_queue(pkt);
         // Najpierw trzeba sprawdzić czy nie jesteśmy obecnie w sekcji
         // krytycznej
-        char msg[16];
-        memset(msg, 0, 16 * sizeof(char));
-        sprintf(msg, "in_cs: %d", in_cs);
-        debug(msg);
+        debug("in_cs: %d", in_cs);
         if (in_cs || (has_priority(pkt.src))) {
           // jeśli tak to zapisujemy to do kolejki
         } else {
@@ -296,7 +312,7 @@ void *receive_thread_func(void *arg) {
       liczba_konfitur++;
       break;
     }
-    debug("przetworzyłam");
+    debug("przetworzyłam %s od [%d]", tag_disp, pkt.src);
 
     if (!receive_condition()) {
       pthread_cond_signal(&cond);
@@ -343,7 +359,6 @@ void request_resource() {
 
   debug(is_babcia ? "Wysyłam prośbę o słoik" : "Wysyłam prośbę o konfiturę");
   pthread_mutex_unlock(&mutex);
-  debug("exit request_resource");
 }
 
 void enter_critical_section() {
@@ -371,6 +386,7 @@ void enter_critical_section() {
   for (int i = 0; i < deferred_queue_size; i++) {
     send_packet(i, TAG_ACK);
   }
+  debug("Wysyłam zaległe ACK");
   deferred_queue_size = 0;
 
   for (int i = 0; i < size; i++) {
@@ -378,7 +394,7 @@ void enter_critical_section() {
       send_packet(i, TAG_REL);
   }
 
-  debug("Wysyłam REL do wszystkich, wychodzę z krytycznej");
+  debug("Wysłałam REL do wszystkich");
   in_cs = false;
   pthread_mutex_unlock(&mutex);
   debug("exit enter_critical_section");

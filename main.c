@@ -278,7 +278,11 @@ void *receive_thread_func(void *arg) {
         // Najpierw trzeba sprawdzić czy nie jesteśmy obecnie w sekcji
         // krytycznej
         debug("Czy jestem w sekcji krytycznej: %d", in_cs);
-        if (in_cs || (has_priority(pkt.src))) {
+
+        if (in_cs && (is_babcia ? liczba_sloikow > 1 : liczba_konfitur > 1)) {
+          send_packet(pkt.src, TAG_ACK);
+          remove_from_queue(pkt.src);
+        } else if (in_cs || (has_priority(pkt.src))) {
           // jeśli tak to zapisujemy to do kolejki
           debug("Mam priorytet, odeślę wiadomość potem");
         } else {
@@ -304,12 +308,13 @@ void *receive_thread_func(void *arg) {
       break;
     case TAG_EMPTY:
       liczba_sloikow++;
-      pthread_cond_signal(&cond);
       break;
     case TAG_FULL:
       liczba_konfitur++;
-      pthread_cond_signal(&cond);
       break;
+    }
+    if (!should_wait()) {
+      pthread_cond_signal(&cond);
     }
     debug("przetworzyłam %s od [%d]", tag_disp, pkt.src);
 

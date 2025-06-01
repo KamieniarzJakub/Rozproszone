@@ -294,7 +294,7 @@ void *receive_thread_func(void *arg) {
 }
 
 void wait_until_can_proceed() {
-  debug("enter wait_until_can_proceed");
+  debug("Czekam, aż będę mogła zabrać");
   pthread_mutex_lock(&mutex);
   while (receive_condition()) {
     pthread_cond_wait(&cond, &mutex);
@@ -302,11 +302,11 @@ void wait_until_can_proceed() {
   in_cs = true;
   remove_from_queue(rank);
   pthread_mutex_unlock(&mutex);
-  debug("exit wait_until_can_proceed");
+  debug("Mogę zabrać");
 }
 
 void request_resource() {
-  debug("enter request_resource");
+  debug(is_babcia ? "Wyślę prośbę o słoik" : "Wyślę prośbę o konfiturę");
   pthread_mutex_lock(&mutex);
   clockLamport++;
   memset(waiting_ack, 0, (B + S) * sizeof(bool));
@@ -331,12 +331,10 @@ void request_resource() {
 }
 
 void enter_critical_section() {
-  debug("enter enter_critical_section");
+  debug("Wchodzę do sekcji krytycznej");
   sleep(rand() % 2 + 1);
 
   pthread_mutex_lock(&mutex);
-  debug("Wchodzę do sekcji krytycznej");
-
   clockLamport++;
 
   if (is_babcia) {
@@ -372,7 +370,7 @@ void enter_critical_section() {
   debug("Wysłałam REL do wszystkich");
   in_cs = false;
   pthread_mutex_unlock(&mutex);
-  debug("exit enter_critical_section");
+  debug("Wychodzę z sekcji krytycznej");
 }
 
 void run_process() {

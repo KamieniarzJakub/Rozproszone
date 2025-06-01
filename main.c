@@ -143,7 +143,7 @@ void inc_clock(int received_ts) {
 }
 
 bool receive_condition() {
-  debug("enter receive_condition");
+  debug("Sprawdzam czy mogę zabrać");
   bool all_ack_received;
   bool resources_available;
   if (is_babcia) {
@@ -154,14 +154,15 @@ bool receive_condition() {
     resources_available = liczba_konfitur > 0;
   }
 
-  debug("exit receive_condition");
-  return !(all_ack_received && resources_available);
+  const bool res = !(all_ack_received && resources_available);
+  debug("Sprawdziłam: %d", res);
+  return res;
 }
 
 void send_packet(int dst, int tag) {
   packet_t pkt = {.ts = clockLamport, .src = rank, .type = tag};
   MPI_Send(&pkt, 1, MPI_PACKET_T, dst, tag, MPI_COMM_WORLD);
-  debug("sent %s to %d", tag_status_disp(tag), dst);
+  debug("Wysyłam %s do %d", tag_status_disp(tag), dst);
 }
 
 int compare_packet(const void *a, const void *b) {
@@ -173,9 +174,9 @@ int compare_packet(const void *a, const void *b) {
 }
 
 void add_to_queue(packet_t pkt) {
-  debug("add_to_queue {src=%d, ts=%d}", pkt.src, pkt.ts);
+  debug("Dodaję do kolejki {src=%d, ts=%d}", pkt.src, pkt.ts);
   if (deferred_queue_size >= B + S) {
-    debug("TRYING TO ADD MORE PACKETS TO QUEUE THAN ALLOWED");
+    debug("PEŁNA KOLEJKA");
     return;
   }
   deffered_queue[deferred_queue_size++] = pkt;
@@ -183,10 +184,10 @@ void add_to_queue(packet_t pkt) {
 }
 
 void remove_from_queue(int src) {
-  debug("remove_from_queue %d", src);
+  debug("Usuwam z kolejki src=%d", src);
   for (int i = 0; i < deferred_queue_size; i++) {
     if (deffered_queue[i].src == src) {
-      debug("remove_from_queue found {src=%d, ts=%d}", deffered_queue[i].src,
+      debug("Znalazłam i usuwam {src=%d, ts=%d}", deffered_queue[i].src,
             deffered_queue[i].ts);
       for (int j = i; j < deferred_queue_size - 1; j++) {
         deffered_queue[j] = deffered_queue[j + 1];
@@ -195,27 +196,28 @@ void remove_from_queue(int src) {
       return;
     }
   }
-  debug("TRYING TO REMOVE NONEXISTENT ID: %d", src);
+  debug("src=%d NIE ISTNIEJE W KOLEJCE", src);
 }
 
 int find_in_queue(int src) {
-  debug("find_in_queue src=%d", src);
+  debug("Szukam w kolejce src=%d", src);
   for (int i = 0; i < deferred_queue_size; i++) {
     if (deffered_queue[i].src == src) {
-      debug("find_in_queue found: i=%d -> {src=%d, ts=%d}", i,
+      debug("Znalazłam w kolejce: i=%d -> {src=%d, ts=%d}", i,
             deffered_queue[i].src, deffered_queue[i].ts);
       return i;
     }
   }
-  debug("TRYING TO REMOVE NONEXISTENT ID: %d\n", src);
+  debug("Brak src=%d w kolejce", src);
   return -1;
 }
 bool has_priority(int p2) {
   int my_pos_in_q = find_in_queue(rank);
   int their_pos_in_q = find_in_queue(p2);
-  debug("mypos %d, theirpos %d (src=%d)", my_pos_in_q, their_pos_in_q, p2);
+  debug("Jestem %d w kolejce, a src=%d na miejscu %d", my_pos_in_q, p2,
+        their_pos_in_q);
   if (their_pos_in_q < 0) {
-    debug("THEIR (src=%d) POS IN Q = -1", p2);
+    debug("Osoba (src=%d) jest na miejscu -1", p2);
     return false;
   }
   if (my_pos_in_q < 0) {
@@ -247,9 +249,10 @@ void *receive_thread_func(void *arg) {
         add_to_queue(pkt);
         // Najpierw trzeba sprawdzić czy nie jesteśmy obecnie w sekcji
         // krytycznej
-        debug("in_cs: %d", in_cs);
+        debug("Czy jestem w sekcji krytycznej: %d", in_cs);
         if (in_cs || (has_priority(pkt.src))) {
           // jeśli tak to zapisujemy to do kolejki
+          debug("Mam priorytet, odeślę wiadomość potem");
         } else {
           // W przeciwnym razie wysyłamy odpowiedź
           send_packet(pkt.src, TAG_ACK);
@@ -375,62 +378,60 @@ void enter_critical_section() {
 void run_process() {
   while (true) {
     if (is_babcia) {
-      if (!has_jar && !has_jam) {
-        debug("enter no jar no jam");
+      if (!has_jar) {
+        debug("Chcę zabrać słoik");
         request_resource();
         wait_until_can_proceed();
         enter_critical_section();
-        debug("exit no jar no jam");
-      } else if (has_jar && !has_jam) {
+        debug("Mam słoik");
+      } else {
         debug("Rozpoczynam produkcję konfitury");
         sleep(rand() % 6 + 1);
         pthread_mutex_lock(&mutex);
         has_jar = false;
         has_jam = true;
         liczba_konfitur++;
+        debug("Mam konfiturę");
+        pthread_mutex_unlock(&mutex);
+        sleep(rand() % 13 + 1);
+        pthread_mutex_lock(&mutex);
         // Babcia wysyła do każdej studentki, że pojawiła się nowa konfitura
+        // dopiero jak chce się jej pozbyć (konfitury)
         for (int i = B; i < B + S; i++) {
           send_packet(i, TAG_FULL);
         }
-        debug("Wysłałam FULL, mam konfiturę");
-        pthread_mutex_unlock(&mutex);
-      } else if (has_jam) {
-        debug("enter jam");
-        sleep(rand() % 13 + 1);
-        pthread_mutex_lock(&mutex);
         has_jam = false;
         pthread_mutex_unlock(&mutex);
-        debug("exit jam");
+        debug("Oddałam konfiturę");
       }
     }
 
     if (is_studentka) {
-      if (!has_jam && !has_jar) {
-        debug("enter no jar no jam");
+      if (!has_jam) {
+        debug("Chcę zabrać konfiturę");
         request_resource();
         wait_until_can_proceed();
         enter_critical_section();
-        debug("exit no jar no jam");
-      } else if (has_jam && !has_jar) {
-        debug("Zjadam konfiturę");
+        debug("Mam konfiturę");
         sleep(rand() % 8 + 1);
         pthread_mutex_lock(&mutex);
         has_jam = false;
         has_jar = true;
         liczba_sloikow++;
+        debug("Mam słoik");
+        pthread_mutex_unlock(&mutex);
+      } else {
+        sleep(rand() % 10 + 1);
+        debug("Chcę oddać słoik");
+        pthread_mutex_lock(&mutex);
         // Studentka wysyła do każdej babci, że zwolnił się nowy słoik
+        // dopiero jak chce się go pozbyć
         for (int i = 0; i < B; i++) {
           send_packet(i, TAG_EMPTY);
         }
-        debug("Wysłałam EMPTY, oddałam słoik");
-        pthread_mutex_unlock(&mutex);
-      } else if (has_jar) {
-        debug("enter jar");
-        sleep(rand() % 10 + 1);
-        pthread_mutex_lock(&mutex);
         has_jar = false;
         pthread_mutex_unlock(&mutex);
-        debug("exit jar");
+        debug("Oddałam słoik");
       }
     }
 

@@ -159,11 +159,7 @@ bool receive_condition() {
 void send_packet(int dst, int tag) {
   packet_t pkt = {.ts = clockLamport, .src = rank, .type = tag};
   MPI_Send(&pkt, 1, MPI_PACKET_T, dst, tag, MPI_COMM_WORLD);
-  char *msg;
-  if (0 < asprintf(&msg, "sent %s to %d", tag_status_disp(tag), dst)) {
-    debug(msg);
-  }
-  free(msg);
+  debug("sent %s to %d", tag_status_disp(tag), dst);
 }
 
 int compare_packet(const void *a, const void *b) {
@@ -175,11 +171,7 @@ int compare_packet(const void *a, const void *b) {
 }
 
 void add_to_queue(packet_t pkt) {
-  char *msg;
-  if (0 < asprintf(&msg, "add_to_queue {src=%d, ts=%d}", pkt.src, pkt.ts)) {
-    debug(msg);
-  }
-  free(msg);
+  debug("add_to_queue {src=%d, ts=%d}", pkt.src, pkt.ts);
   if (deferred_queue_size >= B + S) {
     debug("TRYING TO ADD MORE PACKETS TO QUEUE THAN ALLOWED");
     return;
@@ -189,18 +181,11 @@ void add_to_queue(packet_t pkt) {
 }
 
 void remove_from_queue(int src) {
-  char *msg;
-  if (0 < asprintf(&msg, "remove_from_queue %d", src)) {
-    debug(msg);
-  }
-  free(msg);
+  debug("remove_from_queue %d", src);
   for (int i = 0; i < deferred_queue_size; i++) {
     if (deffered_queue[i].src == src) {
-      if (0 < asprintf(&msg, "remove_from_queue found {src=%d, ts=%d}",
-                       deffered_queue[i].src, deffered_queue[i].ts)) {
-        debug(msg);
-      }
-      free(msg);
+      debug("remove_from_queue found {src=%d, ts=%d}", deffered_queue[i].src,
+            deffered_queue[i].ts);
       for (int j = i; j < deferred_queue_size - 1; j++) {
         deffered_queue[j] = deffered_queue[j + 1];
       }
@@ -208,48 +193,27 @@ void remove_from_queue(int src) {
       return;
     }
   }
-  if (0 < asprintf(&msg, "TRYING TO REMOVE NONEXISTENT ID: %d", src)) {
-    debug(msg);
-  }
-  free(msg);
+  debug("TRYING TO REMOVE NONEXISTENT ID: %d", src);
 }
 
 int find_in_queue(int src) {
-  char *msg;
-  if (0 < asprintf(&msg, "find_in_queue src=%d", src)) {
-    debug(msg);
-  }
-  free(msg);
+  debug("find_in_queue src=%d", src);
   for (int i = 0; i < deferred_queue_size; i++) {
     if (deffered_queue[i].src == src) {
-      if (0 < asprintf(&msg, "find_in_queue found: i=%d -> {src=%d, ts=%d}", i,
-                       deffered_queue[i].src, deffered_queue[i].ts)) {
-        debug(msg);
-      }
-      free(msg);
+      debug("find_in_queue found: i=%d -> {src=%d, ts=%d}", i,
+            deffered_queue[i].src, deffered_queue[i].ts);
       return i;
     }
   }
-  if (0 < asprintf(&msg, "TRYING TO REMOVE NONEXISTENT ID: %d\n", src)) {
-    debug(msg);
-  }
-  free(msg);
+  debug("TRYING TO REMOVE NONEXISTENT ID: %d\n", src);
   return -1;
 }
 bool has_priority(int p2) {
   int my_pos_in_q = find_in_queue(rank);
   int their_pos_in_q = find_in_queue(p2);
-  char *msg;
-  if (0 < asprintf(&msg, "mypos %d, theirpos %d (src=%d)", my_pos_in_q,
-                   their_pos_in_q, p2)) {
-    debug(msg);
-  }
-  free(msg);
+  debug("mypos %d, theirpos %d (src=%d)", my_pos_in_q, their_pos_in_q, p2);
   if (their_pos_in_q < 0) {
-    if (0 < asprintf(&msg, "THEIR (src=%d) POS IN Q = -1", p2)) {
-      debug(msg);
-    }
-    free(msg);
+    debug("THEIR (src=%d) POS IN Q = -1", p2);
     return false;
   }
   if (my_pos_in_q < 0) {

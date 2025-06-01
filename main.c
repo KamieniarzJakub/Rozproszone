@@ -276,16 +276,14 @@ void *receive_thread_func(void *arg) {
       break;
     case TAG_EMPTY:
       liczba_sloikow++;
+      pthread_cond_signal(&cond);
       break;
     case TAG_FULL:
       liczba_konfitur++;
+      pthread_cond_signal(&cond);
       break;
     }
     debug("przetworzyłam %s od [%d]", tag_disp, pkt.src);
-
-    if (!receive_condition()) {
-      pthread_cond_signal(&cond);
-    }
 
     pthread_mutex_unlock(&mutex);
   }
@@ -296,7 +294,7 @@ void *receive_thread_func(void *arg) {
 void wait_until_can_proceed() {
   debug("Czekam, aż będę mogła zabrać");
   pthread_mutex_lock(&mutex);
-  while (receive_condition()) {
+  if (receive_condition()) {
     pthread_cond_wait(&cond, &mutex);
   }
   in_cs = true;

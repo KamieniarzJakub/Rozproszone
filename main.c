@@ -110,9 +110,11 @@ void list_to_str(packet_t *queue, int len, char **out_ptr) {
 
 void debug(const char *message, ...) {
   va_list vl;
+  va_start(vl, message);
   char *msg;
-  if (0 > asprintf(&msg, message, vl))
+  if (0 > vasprintf(&msg, message, vl))
     return; // ALLOC ERROR
+  va_end(vl);
 
   const char *role =
       is_babcia ? "Babcia" : (is_studentka ? "Studentka" : "Proces");

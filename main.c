@@ -350,7 +350,13 @@ void enter_critical_section() {
 
   // wysyła opóźnione potwierdzenia wejścia do sekcji krytycznej
   for (int i = 0; i < deferred_queue_size; i++) {
-    send_packet(i, TAG_ACK);
+    int send_to = deffered_queue[i].src;
+    if (send_to == rank)
+      continue;
+    if ((is_babcia && send_to >= B) || (is_studentka && send_to < B))
+      continue;
+
+    send_packet(send_to, TAG_ACK);
   }
   debug("Wysyłam zaległe ACK");
   deferred_queue_size = 0;

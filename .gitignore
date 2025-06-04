@@ -4,3 +4,5 @@ log1.csv
 log_in_order.txt
 .vscode
 .env
+compile_commands.json
+.cache/clangd/index
